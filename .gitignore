@@ -4,6 +4,6 @@
 *.bz2
 /bin/
 /pkg/
-.cover/
 ._*
-Godeps/
+Godeps/_workspace
+.cover/
