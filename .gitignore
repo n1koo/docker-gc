@@ -1,0 +1,9 @@
+*.pem
+*.access
+*.secret
+*.bz2
+/bin/
+/pkg/
+._*
+Godeps/_workspace
+.cover/

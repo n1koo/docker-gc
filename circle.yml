@@ -1,0 +1,9 @@
+dependencies:
+  pre:
+    - script/setup
+  override:
+    - echo "All dependencies are vendored"
+
+test:
+  override:
+    - script/test
