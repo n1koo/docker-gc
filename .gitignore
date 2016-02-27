@@ -1,0 +1,9 @@
+*.pem
+*.access
+*.secret
+*.bz2
+/bin/
+/pkg/
+.cover/
+._*
+Godeps/
