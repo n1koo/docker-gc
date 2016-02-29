@@ -86,9 +86,10 @@ func removeData(dataMap map[string]int64, dataType string, keepLast time.Duratio
 		// If container/image is older than our threshold, delete it
 		if ageOfData > keepLast {
 			log.WithFields(log.Fields{
-				dataType + " too old by": ageOfData - keepLast,
-				dataType + " age":        ageOfData,
-				"we keep last":           keepLast,
+				"type":      dataType,
+				"expires":   ageOfData - keepLast,
+				"age":       ageOfData,
+				"threshold": keepLast,
 			}).Info("Trying to delete "+dataType+": ", id)
 
 			if dataType == "image" {
