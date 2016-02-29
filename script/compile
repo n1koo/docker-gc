@@ -1,4 +1,4 @@
 #!/bin/bash
 set -xe
 
-godep go build -o bin/docker-gc
+gb build
