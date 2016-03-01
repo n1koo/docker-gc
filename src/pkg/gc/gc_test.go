@@ -9,12 +9,15 @@ import (
   "io/ioutil"
   "net/http"
   "net/http/httptest"
+  "net"
   "strconv"
   "strings"
   "testing"
   "time"
   "os"
   "os/exec"
+  "pkg/statsd"
+  "bytes"
 )
 
 type FakeRoundTripper struct {
@@ -98,32 +101,18 @@ func TestCleanImages(t *testing.T) {
 
   body := `[
      {
-             "Repository":"base",
-             "Tag":"ubuntu-12.10",
              "Id":"b750fe79269d",
              "Created":` + strconv.FormatInt(timeNow.Unix(), 10) + `
      },
      {
-             "Repository":"base",
-             "Tag":"ubuntu-quantal",
              "Id":"b750fe79269d",
              "Created":` + strconv.FormatInt(fiveMinutesOld.Unix(), 10) + `
      },
      {
-             "RepoTag": [
-             "ubuntu:12.04",
-             "ubuntu:precise",
-             "ubuntu:latest"
-             ],
              "Id": "8dbd9e392a964c",
              "Created": ` + strconv.FormatInt(twelweHoursOld.Unix(), 10) + `
       },
       {
-             "RepoTag": [
-             "ubuntu:12.10",
-             "ubuntu:quantal"
-             ],
-             "ParentId": "27cf784147099545",
              "Id": "b750fe79269d2e",
              "Created": ` + strconv.FormatInt(weekOld.Unix(), 10) + `
       }
@@ -154,35 +143,19 @@ func TestCleanContainers(t *testing.T) {
   body := `[
      {
              "Id": "8dfafdbc3a40",
-             "Image": "base:latest",
-             "Command": "echo 1",
-             "Created": ` + strconv.FormatInt(timeNow.Unix(), 10) + `,
-             "Ports":[{"PrivatePort": 2222, "PublicPort": 3333, "Type": "tcp"}],
-             "Status": "Exit 0"
+             "Created": ` + strconv.FormatInt(timeNow.Unix(), 10) + `
      },
      {
              "Id": "9cd87474be90",
-             "Image": "base:latest",
-             "Command": "echo 222222",
-             "Created": ` + strconv.FormatInt(fiveSecondsOld.Unix(), 10) + `,
-             "Ports":[{"PrivatePort": 2222, "PublicPort": 3333, "Type": "tcp"}],
-             "Status": "Exit 0"
+             "Created": ` + strconv.FormatInt(fiveSecondsOld.Unix(), 10) + `
      },
      {
              "Id": "3176a2479c92",
-             "Image": "base:latest",
-             "Command": "echo 3333333333333333",
-             "Created": ` + strconv.FormatInt(fiveMinutesOld.Unix(), 10) + `,
-             "Ports":[{"PrivatePort": 2221, "PublicPort": 3331, "Type": "tcp"}],
-             "Status": "Exit 0"
+             "Created": ` + strconv.FormatInt(fiveMinutesOld.Unix(), 10) + `
      },
      {
              "Id": "4cb07b47f9fb",
-             "Image": "base:latest",
-             "Command": "echo 444444444444444444444444444444444",
-             "Ports":[{"PrivatePort": 2223, "PublicPort": 3332, "Type": "tcp"}],
-             "Created": ` + strconv.FormatInt(twelweHoursOld.Unix(), 10) + `,
-             "Status": "Exit 0"
+             "Created": ` + strconv.FormatInt(twelweHoursOld.Unix(), 10) + `
      }
 ]`
 
@@ -256,4 +229,68 @@ func TestContinuousGC(t *testing.T) {
   assert.Equal(t, "Trying to delete container: 9cd87474be90", hook.Entries[7].Message, "Clean second container on third run")
   assert.Equal(t, "Trying to delete image: 8dfafdbc3a40", hook.Entries[8].Message, "Clean third container on third run")
   assert.Equal(t, "Trying to delete image: 9cd87474be90", hook.Entries[9].Message, "Clean fourth container on third run")
+}
+
+func TestStatsdReporting(t *testing.T) {
+  _, hook := logrustest.NewNullLogger()
+  log.AddHook(hook)
+
+  statsdAddress := "127.0.0.1:6667"
+  conn, err := net.ListenPacket("udp", statsdAddress)
+  if err != nil {
+    t.Fatal(err)
+  }
+  defer conn.Close()
+
+  statsd.Configure(statsdAddress, "test.dockergc.")
+  os.Unsetenv("TESTMODE")
+
+  keepLastData := 0 * time.Second // Delete all images
+  tenMinuteOld := time.Now().Add(-10 * time.Minute)
+
+  // Two entities to be cleaned up
+  body := `[
+     {
+             "Id": "8dfafdbc3a40",
+             "Created": ` + strconv.FormatInt(tenMinuteOld.Unix(), 10) + `
+     },
+     {
+             "Id": "9cd87474be90",
+             "Created": ` + strconv.FormatInt(tenMinuteOld.Unix(), 10) + `
+     }
+  ]`
+
+  client := newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
+
+  CleanContainers(keepLastData, client)
+  CleanImages(keepLastData, client)
+
+  // Assert all four cleanups
+  assert.Equal(t, 4, len(hook.Entries), "We see 4 message")
+  assert.Equal(t, "Trying to delete container: 8dfafdbc3a40", hook.Entries[0].Message, "Delete first container")
+  assert.Equal(t, "Trying to delete container: 9cd87474be90", hook.Entries[1].Message, "Delete second container")
+  assert.Equal(t, "Trying to delete image: 8dfafdbc3a40", hook.Entries[2].Message, "Delete first image")
+  assert.Equal(t, "Trying to delete image: 9cd87474be90", hook.Entries[3].Message, "Delete second image")
+
+  expected_statsd_messages := 6
+
+  // Read from UDP socket and transform to string for assert
+  messages := []string{}
+  for i := 0; i < expected_statsd_messages; i++ {
+    data := make([]byte, 512)
+    _, _, err = conn.ReadFrom(data)
+    if err != nil {
+      t.Fatal(err)
+    }
+    data = bytes.TrimRight(data, "\x00")
+    messages = append(messages,string(data))
+  }
+
+  // Assert that we report container/image amounts before cleansup + each deleted container/image
+  assert.Equal(t, "test.dockergc.container.amount:2|g", messages[0], "report two containers")
+  assert.Equal(t, "test.dockergc.container.deleted:1|c", messages[1], "report deletion of a container")
+  assert.Equal(t, "test.dockergc.container.deleted:1|c", messages[2], "report deletion of a container")
+  assert.Equal(t, "test.dockergc.image.amount:2|g", messages[3], "report two images")
+  assert.Equal(t, "test.dockergc.image.deleted:1|c", messages[4], "report deletion of image")
+  assert.Equal(t, "test.dockergc.image.deleted:1|c", messages[5], "report deletion of image")
 }

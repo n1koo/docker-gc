@@ -86,7 +86,7 @@ func Gauge(metric string, n int) {
 }
 
 func puke(err error) {
-  if os.Getenv("TESTMOD") == "0" {
+  if os.Getenv("TESTMODE") == "" {
     logrus.WithField("error", err).Warn("couldn't submit event to statsd")
   }
 }
