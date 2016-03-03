@@ -45,7 +45,7 @@ func (rt *FakeRoundTripper) Reset() {
   rt.requests = nil
 }
 
-func dummyHTTP() *httptest.Server {
+func dummyDockerServer() *httptest.Server {
     return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(200)
         w.Header().Set("Content-Type", "application/json")
@@ -61,12 +61,12 @@ func newTestClient(rt *FakeRoundTripper) *docker.Client {
 }
 
 func TestStartDockerClient(t *testing.T) {
-  server := dummyHTTP()
+  server := dummyDockerServer()
   defer server.Close()
 
   endpoint := server.URL
-  client := StartDockerClient(endpoint)
-  assert.NotNil(t, client, "Docker client should not be nil after succesful initialization")
+  StartDockerClient(endpoint)
+  assert.NotNil(t, Client, "Docker client should not be nil after succesful initialization")
 }
 
 func TestFailIfDockerNotAvailable(t *testing.T) {
@@ -118,13 +118,13 @@ func TestCleanImages(t *testing.T) {
       }
 ]`
 
-  client := newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
+  Client = newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
   keepLastImages := 10 * time.Hour // Keep images that have been created in the last 10 hours
 
   _, hook := logrustest.NewNullLogger()
   log.AddHook(hook)
 
-  CleanImages(keepLastImages, client)
+  CleanImages(keepLastImages)
 
   // Verify 2 images (12h + week old) were cleaned
   assert.Equal(t, 2, len(hook.Entries), "we should be removing two images")
@@ -159,13 +159,13 @@ func TestCleanContainers(t *testing.T) {
      }
 ]`
 
-  client := newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
+  Client = newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
   keepLastContainers := 1 * time.Minute // Keep containers that have exited in past 59seconds
 
   _, hook := logrustest.NewNullLogger()
   log.AddHook(hook)
 
-  CleanContainers(keepLastContainers, client)
+  CleanContainers(keepLastContainers)
 
   // Verify 2 images (12h + week old) were cleaned
   assert.Equal(t, 2, len(hook.Entries), "we should be removing two images")
@@ -173,17 +173,6 @@ func TestCleanContainers(t *testing.T) {
   assert.Equal(t, "Trying to delete container: 3176a2479c92", hook.Entries[0].Message, "expected to delete 8dbd9e392a964c")
   assert.Equal(t, log.InfoLevel, hook.Entries[1].Level, "all image removal messages should log on Info level")
   assert.Equal(t, "Trying to delete container: 4cb07b47f9fb", hook.Entries[1].Message, "expected to delete 8dbd9e392a964c")
-}
-
-func TestRemoveDataCalledWithInvalidDataType(t *testing.T) {
-  client := newTestClient(&FakeRoundTripper{message: "", status: http.StatusOK})
-  _, hook := logrustest.NewNullLogger()
-  log.AddHook(hook)
-  RemoveData(map[string]int64{"foobar": 1}, "foobar", 1*time.Minute, client)
-
-  assert.Equal(t, 2, len(hook.Entries), "We should only see one message (error)")
-  assert.Equal(t, log.ErrorLevel, hook.Entries[1].Level, "We should use ErrorLevel for this error")
-  assert.Equal(t, "removeData called with unvalid Datatype: foobar", hook.Entries[1].Message, "removeData should report the invalid datatype it was called with")
 }
 
 func TestContinuousGC(t *testing.T) {
@@ -210,8 +199,8 @@ func TestContinuousGC(t *testing.T) {
      }
   ]`
 
-  client := newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
-  ContinuousGC(interval, keepLastContainers, keepLastImages, client)
+  Client = newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
+  ContinuousGC(interval, GCPolicy { KeepLastContainers: keepLastContainers, KeepLastImages: keepLastImages} )
   // Wait for three runs
   time.Sleep(10 * time.Second)
   StopGC()
@@ -260,10 +249,10 @@ func TestStatsdReporting(t *testing.T) {
      }
   ]`
 
-  client := newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
+  Client = newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
 
-  CleanContainers(keepLastData, client)
-  CleanImages(keepLastData, client)
+  CleanContainers(keepLastData)
+  CleanImages(keepLastData)
 
   // Assert all four cleanups
   assert.Equal(t, 4, len(hook.Entries), "We see 4 message")

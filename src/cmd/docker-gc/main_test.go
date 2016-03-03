@@ -28,22 +28,23 @@ func TestParseFlagsExitsWithBadCommand(t *testing.T) {
 
 func TestParseFlagsParsesFlags(t *testing.T) {
 
+  // Test containers+values for keep works
   imageDuration := time.Duration(1*time.Minute)
   containerDuration := time.Duration(5*time.Hour)
-  command := "containers"
+  testCommand := "containers"
 
-  flag.Set("command", command)
+  flag.Set("command", testCommand)
   flag.Set("keep_last_images", imageDuration.String())
   flag.Set("keep_last_containers", containerDuration.String())
   parseFlags()
 
-  assert.Equal(t, KeepLastImages, imageDuration, "ImageDuration parsing failed")
-  assert.Equal(t, KeepLastContainers, containerDuration, "ContainerDuration parsing failed")
-  assert.Equal(t, Command, command, "Command parsing failed")
+  assert.Equal(t, imageGCPolicy.KeepLastImages, imageDuration, "ImageDuration parsing succeeded")
+  assert.Equal(t, imageGCPolicy.KeepLastContainers, containerDuration, "ContainerDuration succeeded")
+  assert.Equal(t, command, testCommand, "Command parsing succeeded")
 }
 
 func TestParseFlagsWithBadParams(t *testing.T) {
   flag.Set("keep_last_containers", "3")
   parseFlags()
-  assert.NotEqual(t, KeepLastContainers.String(), 0, "Command parsing failed")
+  assert.NotEqual(t, imageGCPolicy.KeepLastContainers.String(), 0, "Command parsing failed")
 }

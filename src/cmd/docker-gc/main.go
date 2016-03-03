@@ -13,23 +13,24 @@ import (
 )
 
 var (
-  KeepLastImages     time.Duration
-  KeepLastContainers time.Duration
-  Command            string
-  IntervalForContinuousMode time.Duration
-  BugsnagKey string
-  StatsdAddr string
-  StatsdNamespace string
+  command            string
+  intervalForContinuousMode time.Duration
+  bugsnagKey string
+  statsdAddr string
+  statsdNamespace string
+  imageGCPolicy gc.GCPolicy
 )
 
 var (
-  commandFlag               = flag.String("command", "continuous", "What to clean (images|containers|all|emergency|continous")
-  keepLastImagesFlag        = flag.Duration("keep_last_images", 10*time.Hour, "How old images are kept")
-  keepLastContainersFlag    = flag.Duration("keep_last_containers", 1*time.Minute, "How old containers are kept")
-  intervalForContinuousMode = flag.Duration("interval", 60*time.Second, "How old containers are kept")
-  bugsnagKey                = flag.String("bugsnag_key", "", "Bugsnag key")
-  statsdAddr                = flag.String("statsd_address", "127.0.0.1:8125", "Statsd address to emit metrics to")
-  statsdNamespace           = flag.String("statsd_namespace", "borg.dockergc.", "Namespace for statsd metrics")
+  commandFlag                   = flag.String("command", "continuous", "What to clean (images|containers|all|emergency|continous")
+  keepLastImagesFlag            = flag.Duration("keep_last_images", 10*time.Hour, "How old images are kept")
+  keepLastContainersFlag        = flag.Duration("keep_last_containers", 1*time.Minute, "How old containers are kept")
+  intervalForContinuousModeFlag = flag.Duration("interval", 60*time.Second, "How old containers are kept")
+  bugsnagKeyFlag                = flag.String("bugsnag_key", "", "Bugsnag key")
+  statsdAddrFlag                = flag.String("statsd_address", "127.0.0.1:8125", "Statsd address to emit metrics to")
+  statsdNamespaceFlag           = flag.String("statsd_namespace", "borg.dockergc.", "Namespace for statsd metrics")
+  highDiskSpaceThresholdFlag    = flag.Int("high_disk_space_threshold", 85, "High disk space threshold for GC in percentage")
+  lowDiskSpaceThresholdFlag     = flag.Int("low_disk_space_threshold", 50, "High disk space threshold for GC in percentage")
 )
 
 const usageMessage = `Usage of 'docker-gc':
@@ -45,28 +46,29 @@ const usageMessage = `Usage of 'docker-gc':
 
 func main() {
   parseFlags()
-  initBugSnag(BugsnagKey)
-  statsd.Configure(StatsdAddr, StatsdNamespace)
+  initBugSnag(bugsnagKey)
+  statsd.Configure(statsdAddr, statsdNamespace)
+  gc.StartDockerClient()
 
-  client := gc.StartDockerClient()
-
-  switch Command {
+  switch command {
   case "images":
-    gc.CleanImages(KeepLastImages, client)
+    gc.CleanImages(imageGCPolicy.KeepLastImages)
   case "containers":
-    gc.CleanContainers(KeepLastContainers, client)
+    gc.CleanContainers(imageGCPolicy.KeepLastContainers)
   case "all":
-    gc.CleanContainers(KeepLastContainers, client)
-    gc.CleanImages(KeepLastImages, client)
+    gc.CleanAll(imageGCPolicy)
   case "emergency":
-    gc.CleanContainers(0*time.Second, client)
-    gc.CleanImages(0*time.Second, client)
+    emergencyPolicy := gc.GCPolicy { KeepLastContainers: 0, KeepLastImages: 0 }
+    gc.CleanAll(emergencyPolicy)
   case "continuous":
-    interval := uint64(IntervalForContinuousMode.Seconds())
-    gc.ContinuousGC(interval, KeepLastContainers, KeepLastImages, client)
+    interval := uint64(intervalForContinuousMode.Seconds())
+    gc.ContinuousGC(interval, imageGCPolicy)
+    select{}
+  case "diskspace":
+    gc.DiskSpaceGC(imageGCPolicy)
     select{}
   default:
-    log.Error("%q is not valid command.\n", Command)
+    log.Error("%q is not valid command.\n", command)
     os.Exit(2)
   }
 }
@@ -83,14 +85,26 @@ func parseFlags() {
   flag.Usage = Usage
   flag.Parse()
 
-  Command = *commandFlag
-  KeepLastImages = *keepLastImagesFlag
-  KeepLastContainers = *keepLastContainersFlag
-  IntervalForContinuousMode = *intervalForContinuousMode
-  StatsdAddr = *statsdAddr
-  StatsdNamespace = *statsdNamespace
+  command = *commandFlag
+  intervalForContinuousMode = *intervalForContinuousModeFlag
+  statsdAddr = *statsdAddrFlag
+  statsdNamespace = *statsdNamespaceFlag
 
-  if Command != "all" && Command != "images" && Command != "containers" && Command != "emergency" && Command != "continuous" {
+  imageGCPolicy.KeepLastImages = *keepLastImagesFlag
+  imageGCPolicy.KeepLastContainers = *keepLastContainersFlag
+  imageGCPolicy.HighDiskSpaceThreshold = *highDiskSpaceThresholdFlag
+  imageGCPolicy.LowDiskSpaceThreshold = *lowDiskSpaceThresholdFlag
+
+  if imageGCPolicy.HighDiskSpaceThreshold > 100 || imageGCPolicy.HighDiskSpaceThreshold < 0 || 
+     imageGCPolicy.LowDiskSpaceThreshold > imageGCPolicy.HighDiskSpaceThreshold || imageGCPolicy.LowDiskSpaceThreshold < 0 {
+    log.Error("Disk space threshold not valid, check that values are valid percentage values between 0-100 and that high is bigger than low")
+    flag.Usage()
+    os.Exit(2)
+  }
+
+  if command != "all" && command != "images" && command != "containers" && 
+     command != "emergency" && command != "continuous" && command != "diskspace" {
+    log.WithField("command", command).Error("Given command was not recognized")
     flag.Usage()
     os.Exit(2)
   }
