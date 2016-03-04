@@ -65,7 +65,8 @@ func main() {
     gc.ContinuousGC(interval, imageGCPolicy)
     select{}
   case "diskspace":
-    gc.DiskSpaceGC(imageGCPolicy)
+    interval := uint64(intervalForContinuousMode.Seconds())
+    gc.DiskSpaceGC(interval, imageGCPolicy)
     select{}
   default:
     log.Error("%q is not valid command.\n", command)

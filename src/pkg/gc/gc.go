@@ -8,6 +8,8 @@ import (
   "sort"
   "github.com/n1koo/gocron"
   "pkg/statsd"
+  "syscall"
+  "math"
 )
 
 const (
@@ -50,18 +52,42 @@ func StartDockerClient(endpoint ...string) *docker.Client {
   return nil
 }
 
-func DiskSpaceGC(policy GCPolicy) {
-  log.Info("Continous run in diskspace mode started")
+func DiskSpaceGC(intervalInSeconds uint64, policy GCPolicy) {
+  gocron.Every(intervalInSeconds).Seconds().Do(MonitorDiskSpace, policy)
+  log.Info("Continous run started in diskspace mode with interval (in seconds): ", intervalInSeconds)
+  gocron.Start()
 }
 
 func ContinuousGC(intervalInSeconds uint64, policy GCPolicy) {
   gocron.Every(intervalInSeconds).Seconds().Do(CleanAll, policy)
-  log.Info("Continous run started with interval (in seconds): ", intervalInSeconds)
+  log.Info("Continous run started in timebased mode with interval (in seconds): ", intervalInSeconds)
   gocron.Start()
 }
 
 func StopGC() {
   gocron.Clear()
+}
+
+func MonitorDiskSpace(policy GCPolicy) {
+  info, err := Client.Info()
+  if err != nil {
+    log.Error("Getting docker info failed: ", err)
+    return
+  }
+
+  dockerRoot := info.Get("DockerRootDir")
+
+  for diskSpace, diskErr := getDiskSpace(dockerRoot); diskSpace > policy.HighDiskSpaceThreshold; {
+    if diskErr != nil {
+    log.Error("Reading disk space failed: ", err)
+      return
+    }
+    log.WithFields(log.Fields{
+        "currentFreeDiskSpace":    diskSpace,
+        "highDiskSpaceThreshold":  policy.HighDiskSpaceThreshold,
+      }).Info("High disk space threshold reached, starting cleanup")
+    CleanAll(policy)
+  }
 }
 
 func CleanAll(policy GCPolicy) {
@@ -141,4 +167,20 @@ func removeData(id, dataType string) {
   } else {
     log.Error("removeData called with unvalid Datatype: " + dataType)
   }
+}
+
+func getDiskSpace(path string) (int, error) {
+  s := syscall.Statfs_t{}
+  err := syscall.Statfs(path, &s)
+
+  if err != nil {
+    log.WithField("error", err).Error("Getting free disk space failed")
+    return 0, err
+  }
+
+  total := int(s.Bsize) * int(s.Blocks)
+  free := int(s.Bsize) * int(s.Bfree)
+
+  percent := math.Floor(float64(free) / float64(total) * 100)
+  return int(percent), err
 }

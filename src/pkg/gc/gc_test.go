@@ -208,7 +208,7 @@ func TestContinuousGC(t *testing.T) {
   // Assert all that is expected to happen during that 10s period
   assert.Equal(t, 10, len(hook.Entries), "We see 10 message")
   assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "We should use see Info about starting continuous GC")
-  assert.Equal(t, "Continous run started with interval (in seconds): 3", hook.Entries[0].Message, "report start of GC")
+  assert.Equal(t, "Continous run started in timebased mode with interval (in seconds): 3", hook.Entries[0].Message, "report start of GC")
   assert.Equal(t, "Cleaning all images/containers", hook.Entries[1].Message, "report start of first cleanup")
   assert.Equal(t, "Cleaning all images/containers", hook.Entries[2].Message, "report start of second cleanup")
   assert.Equal(t, "Trying to delete container: 9cd87474be90", hook.Entries[3].Message, "expected to delete the 3sec old container on second run")
