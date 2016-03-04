@@ -12,7 +12,7 @@ import (
 
 const (
   DockerEndpoint = "unix:///var/run/docker.sock"
-  StatsdSamplingRate = 0.1
+  StatsdSamplingRate = 1.0
 )
 
 func StartDockerClient(endpoint ...string) *docker.Client {
@@ -50,6 +50,8 @@ func StopGC() {
 
 func CleanAll(keepLastContainers time.Duration, keepLastImages time.Duration, client *docker.Client) {
   log.Info("Cleaning all images/containers")
+  statsd.Count("continuous.clean.start", 1, []string{}, StatsdSamplingRate)
+
   CleanContainers(keepLastContainers, client)
   CleanImages(keepLastImages, client)
 }
@@ -64,6 +66,7 @@ func CleanContainers(keepLast time.Duration, client *docker.Client) {
   for _, cont := range conts {
     containerMap[cont.ID] = cont.Created
   }
+  statsd.Gauge("container.amount", len(containerMap))
 
   RemoveData(containerMap, "container", keepLast, client)
 }
@@ -78,6 +81,7 @@ func CleanImages(keepLast time.Duration, client *docker.Client) {
   for _, img := range imgs {
     imageMap[img.ID] = img.Created
   }
+  statsd.Gauge("image.amount", len(imageMap))
 
   RemoveData(imageMap, "image", keepLast, client)
 }
@@ -106,14 +110,16 @@ func RemoveData(dataMap map[string]int64, dataType string, keepLast time.Duratio
         err := client.RemoveImage(id)
         if err != nil {
           log.WithField("error", err).Error("Image deletion error for: ", id)
+        } else {
+          statsd.Count("image.deleted", 1, []string{}, StatsdSamplingRate)
         }
-        statsd.Count("image.deleted", 1, []string{}, StatsdSamplingRate)
       } else if dataType == "container" {
         err := client.RemoveContainer(docker.RemoveContainerOptions{ID: id})
         if err != nil {
           log.WithField("error", err).Error("Container deletion error for: ", id)
+        } else {
+          statsd.Count("container.deleted", 1, []string{}, StatsdSamplingRate)
         }
-        statsd.Count("container.deleted", 1, []string{}, StatsdSamplingRate)
       } else {
         log.Error("removeData called with unvalid Datatype: " + dataType)
       }
