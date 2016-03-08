@@ -1,4 +1,4 @@
 #!/bin/bash
 
 script/compile
-bin/docker-gc "$@"
+TESTMODE=true bin/docker-gc "$@"
