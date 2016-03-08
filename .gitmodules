@@ -31,3 +31,6 @@
 [submodule "vendor/src/github.com/Shopify/go-dogstatsd"]
 	path = vendor/src/github.com/Shopify/go-dogstatsd
 	url = https://github.com/Shopify/go-dogstatsd
+[submodule "vendor/src/github.com/cznic/sortutil"]
+	path = vendor/src/github.com/cznic/sortutil
+	url = https://github.com/cznic/sortutil.git
