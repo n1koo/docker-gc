@@ -38,7 +38,9 @@ const usageMessage = `Usage of 'docker-gc':
   -command=all cleans all images and containes respecting keep_last values
   -command=emergency same as all, but with 0second keep_last values
   OR
-  docker-gc (-command=continuous) (-interval=INTERVAL_IN_SECONDS) (-keep_last_images=DURATION) (-keep_last_containers=DURATION) for continuous cleanup 
+  docker-gc (-command=continuous) (-interval=INTERVAL_IN_SECONDS) (-keep_last_images=DURATION) (-keep_last_containers=DURATION) for continuous cleanup in TTL mode
+  OR
+  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for disk space based continuous mode
 
   You can also specify -bugsnag-key="key" to use bugsnag integration
   and -statsd_address=127.0.0.1:815 and statsd_namespace=docker.gc.wtf. for statsd integration
