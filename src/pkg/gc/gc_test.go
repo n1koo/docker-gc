@@ -307,7 +307,7 @@ func TestMonitorDiskSpace(t *testing.T) {
 		data := `
      {
              "Id": "8dfafdbc3a0` + strconv.Itoa(i) + `",
-             "Created": ` + strconv.FormatInt(timeNow.Unix()+int64(i), 10) + `
+             "Created": ` + strconv.FormatInt(timeNow.Unix()-int64(i), 10) + `
      }`
 		arrayOfData = append(arrayOfData, data)
 	}
@@ -321,8 +321,8 @@ func TestMonitorDiskSpace(t *testing.T) {
 
 	CleanAllWithDiskSpacePolicy(fakeDiskSpaceFetcher, GCPolicy{HighDiskSpaceThreshold: 6, LowDiskSpaceThreshold: 3})
 
-	// Assert that we see 6*10 delete runs + 6*2 info messages (counting down from 9 to 4)
-	assert.Equal(t, 72, len(hook.Entries), "We see 72 message")
+	// Assert that we see 6*10 delete runs for images + 6x100 (all) container deletes + 6*2 info messages (counting down from 9 to 4)
+	assert.Equal(t, 672, len(hook.Entries), "We see 672 message")
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "We should report starting of cleanup based on threshold")
 	assert.Equal(t, "Cleaning images to reach low used disk space threshold", hook.Entries[0].Message, "report low image threshold reached")
 }

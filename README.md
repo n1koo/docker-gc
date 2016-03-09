@@ -17,7 +17,9 @@ Yet another Docker GC but unlike others :
   -command=all cleans all images and containes respecting keep_last values
   -command=emergency same as all, but with 0second keep_last values
   OR
-  docker-gc (-command=continuous) (-interval=INTERVAL_IN_SECONDS) (-keep_last_images=DURATION) (-keep_last_containers=DURATION) for continuous cleanup 
+  docker-gc (-command=continuous) (-interval=INTERVAL_IN_SECONDS) (-keep_last_images=DURATION) (-keep_last_containers=DURATION) for continuous cleanup in TTL mode
+  OR
+  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for disk space based continuous mode
 
   You can also specify -bugsnag-key="key" to use bugsnag integration
   and -statsd_address=127.0.0.1:815 and statsd_namespace=docker.gc.wtf. for statsd integration
@@ -43,12 +45,25 @@ Default values are:
 
 ### Continuous mode
 
-You an also keep `docker-gc` running in continuous mode which cleans up containers and images periodically. Keep last values are respected and you can specify the interval of which the cleaner should run.
+`docker-gc` has two continuous modes; TTL based and free disk space based. This means the daemon keeps running and does swipes per `interval` settings.
 
+Default value for `interval` is 60 seconds. 
+
+### TTL based
 
 eg `docker-gc -command=continuous -interval=5m` 
 
-Default value for `interval` is 60 seconds
+Same TTL settings for containers and images apply than for One-time cleanup
+
+#### Free disk space based
+
+eg `docker-gc -command=diskspace -interval=5m -high_disk_space_threshold=85 -low_disk_space_threshold=50`
+
+Monitors the disk volume used by Docker and if used disk space hits the `high_disk_space_threshold` threshold starts cleaning up containers and images in batches of 10
+until `low_disk_space_threshold` is reached.
+
+NOTICE: for containers we cleanup based on the `keep_last_containers`  because in majority of usecases it makes more senses than looping in batches. 
+For images we do this in patches of 10 starting from the oldest after that.
 
 ## Usage
 

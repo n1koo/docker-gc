@@ -119,7 +119,7 @@ func CleanAll(mode string, policy GCPolicy) {
 
 	switch mode {
 	case DiskPolicy:
-		removeDataInBatches(getData(Container), Container, BatchSizeToDelete)
+		removeDataBasedOnAge(getData(Container), Container, policy.KeepLastContainers)
 		removeDataInBatches(getData(Image), Image, BatchSizeToDelete)
 	case DatePolicy:
 		removeDataBasedOnAge(getData(Container), Container, policy.KeepLastContainers)
@@ -183,13 +183,6 @@ func removeDataInBatches(dataMap map[int64][]string, dataType string, batchSizeT
 
 	for _, created := range batch {
 		for _, id := range dataMap[created] {
-			//TODO: ugly hack to make sure containers that have exited in less than a minute dont get cleaned
-			if dataType == Container {
-				ageOfData := time.Since(time.Unix(created, 0))
-				if ageOfData < 1*time.Minute {
-					break
-				}
-			}
 			log.Info("Trying to delete "+dataType+": ", id)
 			removeData(id, dataType)
 		}
