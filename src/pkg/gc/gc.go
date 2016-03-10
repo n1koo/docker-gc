@@ -1,16 +1,17 @@
 package gc
 
 import (
-	log "github.com/Sirupsen/logrus"
-	"github.com/cznic/sortutil"
-	"github.com/fsouza/go-dockerclient"
-	"github.com/n1koo/gocron"
 	"math"
 	"os"
 	"pkg/statsd"
 	"sort"
 	"syscall"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/cznic/sortutil"
+	"github.com/fsouza/go-dockerclient"
+	"github.com/n1koo/gocron"
 )
 
 const (
@@ -39,24 +40,26 @@ type GCPolicy struct {
 	KeepLastImages         time.Duration
 }
 
-func StartDockerClient(endpoint ...string) *docker.Client {
-	var dEndpoint string
-	if len(endpoint) == 0 {
-		dEndpoint = DockerEndpoint
-	} else {
-		dEndpoint = endpoint[0]
+func StartDockerClientDefault() *docker.Client {
+	return StartDockerClient(DockerEndpoint)
+}
+
+func StartDockerClient(endpoint string) *docker.Client {
+	var err error
+
+	if Client != nil {
+		log.Warn("Docker client already initialized, reinitialize happening")
 	}
 
-	var err error
-	Client, err = docker.NewClient(dEndpoint)
+	Client, err = docker.NewClient(endpoint)
 	if err != nil {
-		log.Fatal(err)
+		log.WithField("error", err).Fatal("Error creating Docker client")
 		os.Exit(1)
 	}
 
 	err = Client.Ping()
 	if err != nil {
-		log.Fatal(err)
+		log.WithField("error", err).Fatal("Error talking to Docker API when initializing client")
 		os.Exit(1)
 	}
 
@@ -83,7 +86,7 @@ func StopGC() {
 func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 	usedDiskSpace, diskErr := diskSpaceFetcher.GetUsedDiskSpaceInPercents()
 	if diskErr != nil {
-		log.Error("Reading disk space failed: ", diskErr)
+		log.WithField("error", diskErr).Error("Reading disk space failed")
 		return
 	}
 
@@ -96,7 +99,7 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 			CleanAll(DiskPolicy, policy)
 			usedDiskSpace, diskErr = diskSpaceFetcher.GetUsedDiskSpaceInPercents()
 			if diskErr != nil {
-				log.Error("Reading disk space failed: ", diskErr)
+				log.WithField("error", diskErr).Error("Reading disk space failed")
 				break
 			}
 		}
@@ -106,11 +109,11 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 }
 
 func CleanImages(keepLastImages time.Duration) {
-	removeDataBasedOnAge(getData(Image), Image, keepLastImages)
+	removeDataBasedOnAge(getImages(), Image, keepLastImages)
 }
 
 func CleanContainers(keepLastContainers time.Duration) {
-	removeDataBasedOnAge(getData(Container), Container, keepLastContainers)
+	removeDataBasedOnAge(getContainers(), Container, keepLastContainers)
 }
 
 func CleanAll(mode string, policy GCPolicy) {
@@ -119,11 +122,11 @@ func CleanAll(mode string, policy GCPolicy) {
 
 	switch mode {
 	case DiskPolicy:
-		removeDataBasedOnAge(getData(Container), Container, policy.KeepLastContainers)
-		removeDataInBatches(getData(Image), Image, BatchSizeToDelete)
+		removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
+		removeDataInBatches(getImages(), Image, BatchSizeToDelete)
 	case DatePolicy:
-		removeDataBasedOnAge(getData(Container), Container, policy.KeepLastContainers)
-		removeDataBasedOnAge(getData(Image), Image, policy.KeepLastImages)
+		removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
+		removeDataBasedOnAge(getImages(), Image, policy.KeepLastImages)
 	default:
 		log.Error(mode + " is not valid policy")
 		os.Exit(2)
@@ -133,43 +136,41 @@ func CleanAll(mode string, policy GCPolicy) {
 func getDockerRoot() string {
 	info, err := Client.Info()
 	if err != nil {
-		log.Error("Getting docker info failed: ", err)
+		log.WithField("error", err).Error("Getting docker info failed")
 		os.Exit(1)
 	}
 
-	return info.Get("DockerRootDir")
+	return info.DockerRootDir
 }
 
-func getData(dataType string) map[int64][]string {
-	dataMap := map[int64][]string{}
-
-	switch dataType {
-	case Image:
-		imageData, err := Client.ListImages(docker.ListImagesOptions{All: true})
-		if err != nil {
-			log.Error("Listing images error: ", err)
-			return dataMap
-		}
-		for _, data := range imageData {
-			dataMap[data.Created] = append(dataMap[data.Created], data.ID)
-		}
-		statsd.Gauge("image.amount", len(imageData))
-	case Container:
-		containerData, err := Client.ListContainers(docker.ListContainersOptions{All: true})
-		if err != nil {
-			log.Error("Listing containers error: ", err)
-			return dataMap
-		}
-		for _, data := range containerData {
-			dataMap[data.Created] = append(dataMap[data.Created], data.ID)
-		}
-		statsd.Gauge("container.amount", len(containerData))
-	default:
-		log.Error(dataType + " is not valid type")
-		os.Exit(2)
+func getImages() map[int64][]string {
+	imageMap := map[int64][]string{}
+	imageData, err := Client.ListImages(docker.ListImagesOptions{All: true})
+	if err != nil {
+		log.WithField("error", err).Error("Listing images error")
+		return imageMap
 	}
 
-	return dataMap
+	for _, data := range imageData {
+		imageMap[data.Created] = append(imageMap[data.Created], data.ID)
+	}
+	statsd.Gauge("image.amount", len(imageData))
+	return imageMap
+}
+
+func getContainers() map[int64][]string {
+	containerMap := map[int64][]string{}
+	containerData, err := Client.ListContainers(docker.ListContainersOptions{All: true})
+	if err != nil {
+		log.WithField("error", err).Error("Listing containers error")
+		return containerMap
+	}
+
+	for _, data := range containerData {
+		containerMap[data.Created] = append(containerMap[data.Created], data.ID)
+	}
+	statsd.Gauge("container.amount", len(containerData))
+	return containerMap
 }
 
 func removeDataInBatches(dataMap map[int64][]string, dataType string, batchSizeToDelete int) {
@@ -224,13 +225,19 @@ func removeData(id, dataType string) {
 	if dataType == Image {
 		err := Client.RemoveImageExtended(id, docker.RemoveImageOptions{Force: true})
 		if err != nil {
-			log.WithField("error", err).Error("Image deletion error for: ", id)
+			log.WithFields(log.Fields{
+				"error": err,
+				"id":    id,
+			}).Error("Image deletion error")
 		}
 		statsd.Count("image.deleted", 1, []string{}, StatsdSamplingRate)
 	} else if dataType == Container {
 		err := Client.RemoveContainer(docker.RemoveContainerOptions{ID: id})
 		if err != nil {
-			log.WithField("error", err).Error("Container deletion error for: ", id)
+			log.WithFields(log.Fields{
+				"error": err,
+				"id":    id,
+			}).Error("Container deletion error")
 		}
 		statsd.Count("container.deleted", 1, []string{}, StatsdSamplingRate)
 	} else {
@@ -244,7 +251,7 @@ func (d *DiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 	err := syscall.Statfs(path, &s)
 
 	if err != nil {
-		log.Error("Getting used disk space failed with " + err.Error())
+		log.WithField("error", err).Error("Getting used disk space failed")
 		return 0, err
 	}
 

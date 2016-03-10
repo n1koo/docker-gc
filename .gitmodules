@@ -34,3 +34,6 @@
 [submodule "vendor/src/github.com/cznic/sortutil"]
 	path = vendor/src/github.com/cznic/sortutil
 	url = https://github.com/cznic/sortutil.git
+[submodule "vendor/src/github.com/n1koo/go-udp-testing"]
+	path = vendor/src/github.com/n1koo/go-udp-testing
+	url = https://github.com/n1koo/go-udp-testing
