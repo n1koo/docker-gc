@@ -1,14 +1,8 @@
 package gc
 
 import (
-	"bytes"
 	"fmt"
-	log "github.com/Sirupsen/logrus"
-	logrustest "github.com/Sirupsen/logrus/hooks/test"
-	"github.com/fsouza/go-dockerclient"
-	"github.com/stretchr/testify/assert"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +12,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+	logrustest "github.com/Sirupsen/logrus/hooks/test"
+	"github.com/fsouza/go-dockerclient"
+	udp "github.com/n1koo/go-udp-testing"
+	"github.com/stretchr/testify/assert"
 )
 
 type FakeRoundTripper struct {
@@ -236,12 +236,8 @@ func TestStatsdReporting(t *testing.T) {
 	log.AddHook(hook)
 
 	statsdAddress := "127.0.0.1:6667"
-	conn, err := net.ListenPacket("udp", statsdAddress)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
 
+	udp.SetAddr(statsdAddress)
 	statsd.Configure(statsdAddress, "test.dockergc.")
 	os.Unsetenv("TESTMODE")
 
@@ -262,38 +258,25 @@ func TestStatsdReporting(t *testing.T) {
 
 	Client = newTestClient(&FakeRoundTripper{message: body, status: http.StatusOK})
 
-	CleanContainers(keepLastData)
-	CleanImages(keepLastData)
-	os.Setenv("TESTMODE", "true")
-
-	// Assert all four cleanups
-	assert.Equal(t, 4, len(hook.Entries), "We see 4 message")
-	assert.Equal(t, "Trying to delete container: 8dfafdbc3a40", hook.Entries[0].Message, "Delete first container")
-	assert.Equal(t, "Trying to delete container: 9cd87474be90", hook.Entries[1].Message, "Delete second container")
-	assert.Equal(t, "Trying to delete image: 8dfafdbc3a40", hook.Entries[2].Message, "Delete first image")
-	assert.Equal(t, "Trying to delete image: 9cd87474be90", hook.Entries[3].Message, "Delete second image")
-
-	expected_statsd_messages := 6
-
-	// Read from UDP socket and transform to string for assert
-	messages := []string{}
-	for i := 0; i < expected_statsd_messages; i++ {
-		data := make([]byte, 512)
-		_, _, err = conn.ReadFrom(data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		data = bytes.TrimRight(data, "\x00")
-		messages = append(messages, string(data))
+	expectedContainerMessages := []string{
+		"test.dockergc.container.amount:2|g",
+		"test.dockergc.container.deleted:1|c",
+		"test.dockergc.container.deleted:1|c",
 	}
+	udp.ShouldReceiveAll(t, expectedContainerMessages, func() {
+		CleanContainers(keepLastData)
+	})
 
-	// Assert that we report container/image amounts before cleansup + each deleted container/image
-	assert.Equal(t, "test.dockergc.container.amount:2|g", messages[0], "report two containers")
-	assert.Equal(t, "test.dockergc.container.deleted:1|c", messages[1], "report deletion of a container")
-	assert.Equal(t, "test.dockergc.container.deleted:1|c", messages[2], "report deletion of a container")
-	assert.Equal(t, "test.dockergc.image.amount:2|g", messages[3], "report two images")
-	assert.Equal(t, "test.dockergc.image.deleted:1|c", messages[4], "report deletion of image")
-	assert.Equal(t, "test.dockergc.image.deleted:1|c", messages[5], "report deletion of image")
+	expectedImageMessages := []string{
+		"test.dockergc.image.amount:2|g",
+		"test.dockergc.image.deleted:1|c",
+		"test.dockergc.image.deleted:1|c",
+	}
+	udp.ShouldReceiveAll(t, expectedImageMessages, func() {
+		CleanImages(keepLastData)
+	})
+
+	os.Setenv("TESTMODE", "true")
 }
 
 func TestMonitorDiskSpace(t *testing.T) {

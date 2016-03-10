@@ -50,7 +50,7 @@ func main() {
 	parseFlags()
 	initBugSnag(bugsnagKey)
 	statsd.Configure(statsdAddr, statsdNamespace)
-	gc.StartDockerClient()
+	gc.StartDockerClientDefault()
 
 	switch command {
 	case "images":

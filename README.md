@@ -12,6 +12,11 @@ Yet another Docker GC but unlike others :
 
 ## Usage
 
+### Compiling
+You can compile the binary by doing `script/setup` and `script/compile`. Golang 1.5+ and Git 1.7+ is needed
+
+### Running
+
 ```
   docker-gc (-command=containers|images|all|emergency) (-keep_last_images=DURATION) (-keep_last_containers=DURATION)
   -command=all cleans all images and containes respecting keep_last values
@@ -68,3 +73,5 @@ For images we do this in patches of 10 starting from the oldest after that.
 ## Usage
 
 Development can be done on both OSX and Linux. Tests can be run without Docker, but anykind of manual testing requires your user to have rights to `unix:///var/run/docker.sock` (eg. be in `docker` group)
+
+Setup your environment by doing `script/setup`. Tests can be run with `script/test` and running the current version with `script/run` (compile+run+test mode env)
