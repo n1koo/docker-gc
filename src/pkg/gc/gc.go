@@ -123,7 +123,7 @@ func CleanAll(mode string, policy GCPolicy) {
 	switch mode {
 	case DiskPolicy:
 		removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
-		removeDataInBatches(getImages(), Image, BatchSizeToDelete)
+		removeDataInBatches(getImages(), Image)
 	case DatePolicy:
 		removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
 		removeDataBasedOnAge(getImages(), Image, policy.KeepLastImages)
@@ -173,11 +173,11 @@ func getContainers() map[int64][]string {
 	return containerMap
 }
 
-func removeDataInBatches(dataMap map[int64][]string, dataType string, batchSizeToDelete int) {
+func removeDataInBatches(dataMap map[int64][]string, dataType string) {
 	dates := sortDataMap(dataMap)
 	var batch []int64
-	if len(dates) > 10 {
-		batch = dates[len(dates)-10:]
+	if len(dates) > BatchSizeToDelete {
+		batch = dates[len(dates)-BatchSizeToDelete:]
 	} else {
 		batch = dates
 	}
