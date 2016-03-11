@@ -160,16 +160,26 @@ func getImages() map[int64][]string {
 
 func getContainers() map[int64][]string {
 	containerMap := map[int64][]string{}
-	containerData, err := Client.ListContainers(docker.ListContainersOptions{All: true})
+
+	//XXX: Support for dead is only in 1.10 https://github.com/docker/docker/pull/17908
+	onlyGetExitedContainers := docker.ListContainersOptions{Filters: map[string][]string{"status": {"exited", "dead"}}}
+	containersList, err := Client.ListContainers(onlyGetExitedContainers)
 	if err != nil {
 		log.WithField("error", err).Error("Listing containers error")
 		return containerMap
 	}
 
-	for _, data := range containerData {
-		containerMap[data.Created] = append(containerMap[data.Created], data.ID)
+	for _, data := range containersList {
+		containerFullData, cErr := Client.InspectContainer(data.ID)
+		if cErr != nil {
+			log.WithField("error", cErr).Error("Fetching container full data error")
+		} else {
+			date := containerFullData.State.FinishedAt.Unix()
+			containerMap[date] = append(containerMap[date], data.ID)
+		}
+
 	}
-	statsd.Gauge("container.amount", len(containerData))
+	statsd.Gauge("container.dead.amount", len(containersList))
 	return containerMap
 }
 
@@ -182,8 +192,8 @@ func removeDataInBatches(dataMap map[int64][]string, dataType string, batchSizeT
 		batch = dates
 	}
 
-	for _, created := range batch {
-		for _, id := range dataMap[created] {
+	for _, date := range batch {
+		for _, id := range dataMap[date] {
 			log.Info("Trying to delete "+dataType+": ", id)
 			removeData(id, dataType)
 		}
@@ -193,9 +203,9 @@ func removeDataInBatches(dataMap map[int64][]string, dataType string, batchSizeT
 func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast time.Duration) {
 	dates := sortDataMap(dataMap)
 
-	for _, created := range dates {
-		for _, id := range dataMap[created] {
-			ageOfData := time.Since(time.Unix(created, 0))
+	for _, date := range dates {
+		for _, id := range dataMap[date] {
+			ageOfData := time.Since(time.Unix(date, 0))
 
 			// If container/image is older than our threshold, delete it
 			if ageOfData > keepLast {
