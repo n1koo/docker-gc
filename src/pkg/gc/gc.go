@@ -104,7 +104,10 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 			}
 		}
 	} else {
-		log.Info("Disk space threshold not reached, skipping cleanup")
+		log.WithFields(log.Fields{
+			"currentUsedDiskSpace":   usedDiskSpace,
+			"highDiskSpaceThreshold": policy.LowDiskSpaceThreshold,
+		}).Info("Disk space threshold not reached, skipping cleanup")
 	}
 }
 
@@ -257,6 +260,8 @@ func removeData(id, dataType string) {
 
 func (d *DiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 	path := getDockerRoot()
+	log.WithField("path", path).Debug("DockerRoot")
+
 	s := syscall.Statfs_t{}
 	err := syscall.Statfs(path, &s)
 
@@ -268,6 +273,6 @@ func (d *DiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 	total := int(s.Bsize) * int(s.Blocks)
 	free := int(s.Bsize) * int(s.Bfree)
 
-	percent := math.Floor(float64(free) / float64(total) * 100)
+	percent := math.Floor(100 - (float64(free) / float64(total) * 100))
 	return int(percent), err
 }
