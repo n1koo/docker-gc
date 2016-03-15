@@ -94,7 +94,8 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 		for usedDiskSpace > policy.LowDiskSpaceThreshold {
 			log.WithFields(log.Fields{
 				"currentUsedDiskSpace":   usedDiskSpace,
-				"highDiskSpaceThreshold": policy.LowDiskSpaceThreshold,
+				"highDiskSpaceThreshold": policy.HighDiskSpaceThreshold,
+				"lowDiskSpaceThreshold":  policy.LowDiskSpaceThreshold,
 			}).Info("Cleaning images to reach low used disk space threshold")
 			CleanAll(DiskPolicy, policy)
 			usedDiskSpace, diskErr = diskSpaceFetcher.GetUsedDiskSpaceInPercents()
@@ -106,7 +107,8 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 	} else {
 		log.WithFields(log.Fields{
 			"currentUsedDiskSpace":   usedDiskSpace,
-			"highDiskSpaceThreshold": policy.LowDiskSpaceThreshold,
+			"highDiskSpaceThreshold": policy.HighDiskSpaceThreshold,
+			"lowDiskSpaceThreshold":  policy.LowDiskSpaceThreshold,
 		}).Info("Disk space threshold not reached, skipping cleanup")
 	}
 }
