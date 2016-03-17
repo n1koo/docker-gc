@@ -97,7 +97,13 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 				"highDiskSpaceThreshold": policy.HighDiskSpaceThreshold,
 				"lowDiskSpaceThreshold":  policy.LowDiskSpaceThreshold,
 			}).Info("Cleaning images to reach low used disk space threshold")
-			CleanAll(DiskPolicy, policy)
+
+			cleanedContainers, cleanedImages := CleanAll(DiskPolicy, policy)
+			if cleanedContainers == 0 && cleanedImages == 0 {
+				log.Info("Breaking cleanup due to no data being deleted anymore")
+				break // we are not making progress, lets relax for interval period
+			}
+
 			usedDiskSpace, diskErr = diskSpaceFetcher.GetUsedDiskSpaceInPercents()
 			if diskErr != nil {
 				log.WithField("error", diskErr).Error("Reading disk space failed")
@@ -121,21 +127,25 @@ func CleanContainers(keepLastContainers time.Duration) {
 	removeDataBasedOnAge(getContainers(), Container, keepLastContainers)
 }
 
-func CleanAll(mode string, policy GCPolicy) {
+func CleanAll(mode string, policy GCPolicy) (int, int) {
 	log.Info("Cleaning all images/containers")
 	statsd.Count("clean.start", 1, []string{}, StatsdSamplingRate)
 
+	var removedContainers int
+	var removedImages int
+
 	switch mode {
 	case DiskPolicy:
-		removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
-		removeDataInBatches(getImages(), Image)
+		removedContainers = removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
+		removedImages = removeDataInBatches(getImages(), Image)
 	case DatePolicy:
-		removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
-		removeDataBasedOnAge(getImages(), Image, policy.KeepLastImages)
+		removedContainers = removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
+		removedImages = removeDataBasedOnAge(getImages(), Image, policy.KeepLastImages)
 	default:
 		log.Error(mode + " is not valid policy")
 		os.Exit(2)
 	}
+	return removedContainers, removedImages
 }
 
 func getDockerRoot() string {
@@ -188,7 +198,9 @@ func getContainers() map[int64][]string {
 	return containerMap
 }
 
-func removeDataInBatches(dataMap map[int64][]string, dataType string) {
+func removeDataInBatches(dataMap map[int64][]string, dataType string) int {
+	var deletedData int
+
 	dates := sortDataMap(dataMap)
 	var batch []int64
 	if len(dates) > BatchSizeToDelete {
@@ -200,12 +212,16 @@ func removeDataInBatches(dataMap map[int64][]string, dataType string) {
 	for _, date := range batch {
 		for _, id := range dataMap[date] {
 			log.Info("Trying to delete "+dataType+": ", id)
-			removeData(id, dataType)
+			if succeeded := removeData(id, dataType); succeeded {
+				deletedData++
+			}
 		}
 	}
+	return deletedData
 }
 
-func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast time.Duration) {
+func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast time.Duration) int {
+	var deletedData int
 	dates := sortDataMap(dataMap)
 
 	for _, date := range dates {
@@ -220,10 +236,13 @@ func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast 
 					"age":       ageOfData,
 					"threshold": keepLast,
 				}).Info("Trying to delete "+dataType+": ", id)
-				removeData(id, dataType)
+				if succeeded := removeData(id, dataType); succeeded {
+					deletedData++
+				}
 			}
 		}
 	}
+	return deletedData
 }
 
 func sortDataMap(dataMap map[int64][]string) []int64 {
@@ -236,7 +255,7 @@ func sortDataMap(dataMap map[int64][]string) []int64 {
 	return dates
 }
 
-func removeData(id, dataType string) {
+func removeData(id, dataType string) bool {
 	if dataType == Image {
 		err := Client.RemoveImageExtended(id, docker.RemoveImageOptions{Force: true})
 		if err != nil {
@@ -244,6 +263,7 @@ func removeData(id, dataType string) {
 				"error": err,
 				"id":    id,
 			}).Error("Image deletion error")
+			return false
 		}
 		statsd.Count("image.deleted", 1, []string{}, StatsdSamplingRate)
 	} else if dataType == Container {
@@ -253,11 +273,14 @@ func removeData(id, dataType string) {
 				"error": err,
 				"id":    id,
 			}).Error("Container deletion error")
+			return false
 		}
 		statsd.Count("container.deleted", 1, []string{}, StatsdSamplingRate)
 	} else {
 		log.Error("removeData called with unvalid Datatype: " + dataType)
+		return false
 	}
+	return true
 }
 
 func (d *DiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
