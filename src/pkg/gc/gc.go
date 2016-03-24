@@ -3,13 +3,12 @@ package gc
 import (
 	"math"
 	"os"
+	"pkg/helpers"
 	"pkg/statsd"
-	"sort"
 	"syscall"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/cznic/sortutil"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/n1koo/gocron"
 )
@@ -124,7 +123,7 @@ func CleanImages(keepLastImages time.Duration) {
 }
 
 func CleanContainers(keepLastContainers time.Duration) {
-	removeDataBasedOnAge(getContainers(), Container, keepLastContainers)
+	removeDataBasedOnAge(getFinishedContainers(), Container, keepLastContainers)
 }
 
 func CleanAll(mode string, policy GCPolicy) (int, int) {
@@ -136,10 +135,10 @@ func CleanAll(mode string, policy GCPolicy) (int, int) {
 
 	switch mode {
 	case DiskPolicy:
-		removedContainers = removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
-		removedImages = removeDataInBatches(getImages(), Image)
+		removedContainers = removeDataBasedOnAge(getFinishedContainers(), Container, policy.KeepLastContainers)
+		removedImages = removeImagesInBatches()
 	case DatePolicy:
-		removedContainers = removeDataBasedOnAge(getContainers(), Container, policy.KeepLastContainers)
+		removedContainers = removeDataBasedOnAge(getFinishedContainers(), Container, policy.KeepLastContainers)
 		removedImages = removeDataBasedOnAge(getImages(), Image, policy.KeepLastImages)
 	default:
 		log.Error(mode + " is not valid policy")
@@ -158,6 +157,25 @@ func getDockerRoot() string {
 	return info.DockerRootDir
 }
 
+func getImagesInUse() []string {
+	containersList := getRunningContainers()
+	var usedImages []string
+
+	for _, container := range containersList {
+		usedImages = append(usedImages, container.Image)
+		imageHistory, err := Client.ImageHistory(container.Image)
+		if err != nil {
+			log.WithField("error", err).Error("Getting image history failed")
+			continue
+		}
+		for _, image := range imageHistory {
+			usedImages = append(usedImages, image.ID)
+		}
+	}
+
+	return usedImages
+}
+
 func getImages() map[int64][]string {
 	imageMap := map[int64][]string{}
 	imageData, err := Client.ListImages(docker.ListImagesOptions{All: true})
@@ -166,14 +184,18 @@ func getImages() map[int64][]string {
 		return imageMap
 	}
 
+	usedImages := getImagesInUse()
+
 	for _, data := range imageData {
-		imageMap[data.Created] = append(imageMap[data.Created], data.ID)
+		if !helpers.StringInSlice(data.ID, usedImages) {
+			imageMap[data.Created] = append(imageMap[data.Created], data.ID)
+		}
 	}
 	statsd.Gauge("image.amount", len(imageData))
 	return imageMap
 }
 
-func getContainers() map[int64][]string {
+func getFinishedContainers() map[int64][]string {
 	containerMap := map[int64][]string{}
 
 	//XXX: Support for dead is only in 1.10 https://github.com/docker/docker/pull/17908
@@ -198,10 +220,21 @@ func getContainers() map[int64][]string {
 	return containerMap
 }
 
-func removeDataInBatches(dataMap map[int64][]string, dataType string) int {
+func getRunningContainers() []docker.APIContainers {
+	onlyGetExitedContainers := docker.ListContainersOptions{Filters: map[string][]string{"status": {"running"}}}
+	containersList, err := Client.ListContainers(onlyGetExitedContainers)
+	if err != nil {
+		log.WithField("error", err).Error("Listing containers error")
+		return containersList
+	}
+	return containersList
+}
+
+func removeImagesInBatches() int {
+	dataMap := getImages()
 	var deletedData int
 
-	dates := sortDataMap(dataMap)
+	dates := helpers.SortDataMap(dataMap)
 	var batch []int64
 	if len(dates) > BatchSizeToDelete {
 		batch = dates[len(dates)-BatchSizeToDelete:]
@@ -211,8 +244,8 @@ func removeDataInBatches(dataMap map[int64][]string, dataType string) int {
 
 	for _, date := range batch {
 		for _, id := range dataMap[date] {
-			log.Info("Trying to delete "+dataType+": ", id)
-			if succeeded := removeData(id, dataType); succeeded {
+			log.Info("Trying to delete image: " + id)
+			if succeeded := removeData(id, Image); succeeded {
 				deletedData++
 			}
 		}
@@ -222,7 +255,7 @@ func removeDataInBatches(dataMap map[int64][]string, dataType string) int {
 
 func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast time.Duration) int {
 	var deletedData int
-	dates := sortDataMap(dataMap)
+	dates := helpers.SortDataMap(dataMap)
 
 	for _, date := range dates {
 		for _, id := range dataMap[date] {
@@ -245,19 +278,9 @@ func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast 
 	return deletedData
 }
 
-func sortDataMap(dataMap map[int64][]string) []int64 {
-	//Sort map based on dates to make order predictable
-	var dates []int64
-	for k := range dataMap {
-		dates = append(dates, k)
-	}
-	sort.Sort(sort.Reverse(sortutil.Int64Slice(dates)))
-	return dates
-}
-
 func removeData(id, dataType string) bool {
 	if dataType == Image {
-		err := Client.RemoveImageExtended(id, docker.RemoveImageOptions{Force: true})
+		err := Client.RemoveImageExtended(id, docker.RemoveImageOptions{NoPrune: true})
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error": err,
@@ -285,7 +308,6 @@ func removeData(id, dataType string) bool {
 
 func (d *DiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 	path := getDockerRoot()
-	log.WithField("path", path).Debug("DockerRoot")
 
 	s := syscall.Statfs_t{}
 	err := syscall.Statfs(path, &s)
