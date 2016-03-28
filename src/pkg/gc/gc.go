@@ -280,7 +280,7 @@ func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast 
 
 func removeData(id, dataType string) bool {
 	if dataType == Image {
-		err := Client.RemoveImageExtended(id, docker.RemoveImageOptions{NoPrune: true})
+		err := Client.RemoveImageExtended(id, docker.RemoveImageOptions{NoPrune: true, Force: true})
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error": err,
