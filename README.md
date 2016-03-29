@@ -6,7 +6,7 @@ Yet another Docker GC but unlike others :
 
 - Written in Go and uses the `go-dockerclient` to talk straight to API (rather than shelling out)
 - Actually have tests
-- Supports manual cleanups in addition to continuous runs
+- Supports manual cleanups in addition to ttl runs
 - Supports reporting errors to [Bugsnag](https://bugsnag.com)
 - Supports sending metrics to [dogstatsd](http://docs.datadoghq.com/guides/dogstatsd/)
 
@@ -18,19 +18,19 @@ You can compile the binary by doing `script/setup` and `script/compile`. Golang 
 ### Running
 
 ```
-  docker-gc (-command=containers|images|all|emergency) (-keep_last_images=DURATION) (-keep_last_containers=DURATION)
+  docker-gc (-command=containers|images|all|emergency|diskspace|ttl) (-images_ttl=DURATION) (-containers_ttl=DURATION)
   -command=all cleans all images and containes respecting keep_last values
   -command=emergency same as all, but with 0second keep_last values
   OR
-  docker-gc (-command=continuous) (-interval=INTERVAL_IN_SECONDS) (-keep_last_images=DURATION) (-keep_last_containers=DURATION) for continuous cleanup in TTL mode
+  docker-gc (-command=ttl) (-interval=INTERVAL_IN_SECONDS) (-images_ttl=DURATION) (-containers_ttl=DURATION) for continuous cleanup based on image/container TTL
   OR
-  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for disk space based continuous mode
+  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for continuous cleanup based on used disk space
 
   You can also specify -bugsnag-key="key" to use bugsnag integration
   and -statsd_address=127.0.0.1:815 and statsd_namespace=docker.gc.wtf. for statsd integration
 ```
 
-`docker-gc` has two main modes; continuous cleanup and one-time cleanup. 
+`docker-gc` has two main modes; ttl cleanup and one-time cleanup. 
 
 ### One-time cleanup
 
@@ -40,23 +40,23 @@ One-time cleanup can be in four ways (as `-command=COMMAND`)
 - all : clean all containers and images but respect `keep_last` values
 - images/containers : clean only images or only containers respecting `keep_last` values
 
-eg. `docker-gc -command=all -keep_last_images=5m -keep_last_containers=1m` would do a one time cleanup of images older than 5minutes and containers older than 1minutes
+eg. `docker-gc -command=all -images_ttl=5m -containers_ttl=1m` would do a one time cleanup of images older than 5minutes and containers older than 1minutes
 
 Default values are: 
 
-- `command` = continuous
-- `keep_last_images` = 10 hours
-- `keep_last_containers` = 1minutes
+- `command` = ttl
+- `images_ttl` = 10 hours
+- `containers_ttl` = 1minutes
 
 ### Continuous mode
 
-`docker-gc` has two continuous modes; TTL based and free disk space based. This means the daemon keeps running and does swipes per `interval` settings.
+`docker-gc` has two ttl modes; TTL based and free disk space based. This means the daemon keeps running and does swipes per `interval` settings.
 
 Default value for `interval` is 60 seconds. 
 
 ### TTL based
 
-eg `docker-gc -command=continuous -interval=5m` 
+eg `docker-gc -command=ttl -interval=5m` 
 
 Same TTL settings for containers and images apply than for One-time cleanup
 
@@ -67,7 +67,7 @@ eg `docker-gc -command=diskspace -interval=5m -high_disk_space_threshold=85 -low
 Monitors the disk volume used by Docker and if used disk space hits the `high_disk_space_threshold` threshold starts cleaning up containers and images in batches of 10
 until `low_disk_space_threshold` is reached.
 
-NOTICE: for containers we cleanup based on the `keep_last_containers`  because in majority of usecases it makes more senses than looping in batches. 
+NOTICE: for containers we cleanup based on the `containers_ttl`  because in majority of usecases it makes more senses than looping in batches. 
 For images we do this in patches of 10 starting from the oldest after that.
 
 ## Usage

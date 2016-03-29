@@ -2,11 +2,12 @@ package main
 
 import (
 	"flag"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParseFlagsExitsWithBadCommand(t *testing.T) {
@@ -34,8 +35,8 @@ func TestParseFlagsParsesFlags(t *testing.T) {
 	testCommand := "containers"
 
 	flag.Set("command", testCommand)
-	flag.Set("keep_last_images", imageDuration.String())
-	flag.Set("keep_last_containers", containerDuration.String())
+	flag.Set("images_ttl", imageDuration.String())
+	flag.Set("containers_ttl", containerDuration.String())
 	parseFlags()
 
 	assert.Equal(t, imageGCPolicy.KeepLastImages, imageDuration, "ImageDuration parsing succeeded")
@@ -44,7 +45,7 @@ func TestParseFlagsParsesFlags(t *testing.T) {
 }
 
 func TestParseFlagsWithBadParams(t *testing.T) {
-	flag.Set("keep_last_containers", "3")
+	flag.Set("containers_ttl", "3")
 	parseFlags()
 	assert.NotEqual(t, imageGCPolicy.KeepLastContainers.String(), 0, "Command parsing failed")
 }

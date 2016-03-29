@@ -72,7 +72,7 @@ func DiskSpaceGC(intervalInSeconds uint64, policy GCPolicy) {
 	gocron.Start()
 }
 
-func ContinuousGC(intervalInSeconds uint64, policy GCPolicy) {
+func TtlGC(intervalInSeconds uint64, policy GCPolicy) {
 	gocron.Every(intervalInSeconds).Seconds().Do(CleanAll, DatePolicy, policy)
 	log.Info("Continous run started in timebased mode with interval (in seconds): ", intervalInSeconds)
 	gocron.Start()
@@ -118,12 +118,12 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 	}
 }
 
-func CleanImages(keepLastImages time.Duration) {
-	removeDataBasedOnAge(getImages(), Image, keepLastImages)
+func CleanImages(imagesTtl time.Duration) {
+	removeDataBasedOnAge(getImages(), Image, imagesTtl)
 }
 
-func CleanContainers(keepLastContainers time.Duration) {
-	removeDataBasedOnAge(getFinishedContainers(), Container, keepLastContainers)
+func CleanContainers(containersTtl time.Duration) {
+	removeDataBasedOnAge(getFinishedContainers(), Container, containersTtl)
 }
 
 func CleanAll(mode string, policy GCPolicy) (int, int) {

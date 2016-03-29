@@ -214,7 +214,7 @@ func TestFailIfDockerNotAvailable(t *testing.T) {
 
 func TestCleanImages(t *testing.T) {
 
-	keepLastImages := 10 * time.Hour // Keep images that have been created in the last 10 hours
+	imagesTtl := 10 * time.Hour // Keep images that have been created in the last 10 hours
 	server := testServer(generateTestData())
 	defer server.Close()
 
@@ -224,7 +224,7 @@ func TestCleanImages(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	CleanImages(keepLastImages)
+	CleanImages(imagesTtl)
 
 	// Verify 2 images (12h + week old) were cleaned
 	assert.Equal(t, 2, len(hook.Entries), "we should be removing two images")
@@ -235,7 +235,7 @@ func TestCleanImages(t *testing.T) {
 }
 
 func TestCleanContainers(t *testing.T) {
-	keepLastContainers := 1 * time.Minute // Keep containers that have exited in past 59seconds
+	containersTtl := 1 * time.Minute // Keep containers that have exited in past 59seconds
 
 	server := testServer(generateTestData())
 	defer server.Close()
@@ -245,7 +245,7 @@ func TestCleanContainers(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	CleanContainers(keepLastContainers)
+	CleanContainers(containersTtl)
 
 	// Verify 2 images (12h + week old) were cleaned
 	assert.Equal(t, 3, len(hook.Entries), "we should be removing two images")
@@ -257,12 +257,12 @@ func TestCleanContainers(t *testing.T) {
 	assert.Equal(t, "Trying to delete container: 5c76a2479c92", hook.Entries[2].Message, "expected to delete 8dbd9e392a964c")
 }
 
-func TestContinuousGC(t *testing.T) {
+func TestTtlGC(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	keepLastContainers := 10 * time.Second // Keep containers for 10s
-	keepLastImages := 10 * time.Second     // Keep images for 10s
+	containersTtl := 10 * time.Second // Keep containers for 10s
+	imagesTtl := 10 * time.Second     // Keep images for 10s
 
 	var interval uint64 = 3 // interval for cron run
 
@@ -272,14 +272,14 @@ func TestContinuousGC(t *testing.T) {
 	Client = nil
 	StartDockerClient(server.URL)
 
-	ContinuousGC(interval, GCPolicy{KeepLastContainers: keepLastContainers, KeepLastImages: keepLastImages})
+	TtlGC(interval, GCPolicy{KeepLastContainers: containersTtl, KeepLastImages: imagesTtl})
 	// Wait for three runs
 	time.Sleep(10 * time.Second)
 	StopGC()
 
 	// Assert all that is expected to happen during that 10s period
 	assert.Equal(t, 28, len(hook.Entries), "We see 28 message")
-	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "We should use see Info about starting continuous GC")
+	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "We should use see Info about starting ttl GC")
 	assert.Equal(t, "Continous run started in timebased mode with interval (in seconds): 3", hook.Entries[0].Message, "report start of GC")
 	assert.Equal(t, "Cleaning all images/containers", hook.Entries[1].Message, "report start of first cleanup")
 	assert.Equal(t, "Trying to delete container: 3176a2479c92", hook.Entries[2].Message, "clean 12h old image")
