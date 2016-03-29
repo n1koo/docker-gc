@@ -3,13 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/Shopify/logrus-bugsnag"
-	log "github.com/Sirupsen/logrus"
-	"github.com/bugsnag/bugsnag-go"
 	"os"
 	"pkg/gc"
 	"pkg/statsd"
 	"time"
+
+	logrus_bugsnag "github.com/Shopify/logrus-bugsnag"
+	log "github.com/Sirupsen/logrus"
+	"github.com/bugsnag/bugsnag-go"
 )
 
 var (
@@ -22,9 +23,9 @@ var (
 )
 
 var (
-	commandFlag                   = flag.String("command", "continuous", "What to clean (images|containers|all|emergency|continous")
-	keepLastImagesFlag            = flag.Duration("keep_last_images", 10*time.Hour, "How old images are kept")
-	keepLastContainersFlag        = flag.Duration("keep_last_containers", 1*time.Minute, "How old containers are kept")
+	commandFlag                   = flag.String("command", "ttl", "What to clean (images|containers|all|emergency|continous")
+	imagesTtlFlag                 = flag.Duration("images_ttl", 10*time.Hour, "How old images are kept")
+	containersTtlFlag             = flag.Duration("containers_ttl", 1*time.Minute, "How old containers are kept")
 	intervalForContinuousModeFlag = flag.Duration("interval", 60*time.Second, "How often we run checks in interval mode")
 	bugsnagKeyFlag                = flag.String("bugsnag_key", "", "Bugsnag key")
 	statsdAddrFlag                = flag.String("statsd_address", "127.0.0.1:8125", "Statsd address to emit metrics to")
@@ -34,13 +35,13 @@ var (
 )
 
 const usageMessage = `Usage of 'docker-gc':
-  docker-gc (-command=containers|images|all|emergency) (-keep_last_images=DURATION) (-keep_last_containers=DURATION)
+  docker-gc (-command=containers|images|all|emergency|diskspace|ttl) (-images_ttl=DURATION) (-containers_ttl=DURATION)
   -command=all cleans all images and containes respecting keep_last values
   -command=emergency same as all, but with 0second keep_last values
   OR
-  docker-gc (-command=continuous) (-interval=INTERVAL_IN_SECONDS) (-keep_last_images=DURATION) (-keep_last_containers=DURATION) for continuous cleanup in TTL mode
+  docker-gc (-command=ttl) (-interval=INTERVAL_IN_SECONDS) (-images_ttl=DURATION) (-containers_ttl=DURATION) for continuous cleanup based on image/container TTL
   OR
-  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for disk space based continuous mode
+  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for continuous cleanup based on used disk space
 
   You can also specify -bugsnag-key="key" to use bugsnag integration
   and -statsd_address=127.0.0.1:815 and statsd_namespace=docker.gc.wtf. for statsd integration
@@ -62,9 +63,9 @@ func main() {
 	case "emergency":
 		emergencyPolicy := gc.GCPolicy{KeepLastContainers: 0, KeepLastImages: 0}
 		gc.CleanAll(gc.DatePolicy, emergencyPolicy)
-	case "continuous":
+	case "ttl":
 		interval := uint64(intervalForContinuousMode.Seconds())
-		gc.ContinuousGC(interval, imageGCPolicy)
+		gc.TtlGC(interval, imageGCPolicy)
 		select {}
 	case "diskspace":
 		interval := uint64(intervalForContinuousMode.Seconds())
@@ -93,8 +94,8 @@ func parseFlags() {
 	statsdAddr = *statsdAddrFlag
 	statsdNamespace = *statsdNamespaceFlag
 
-	imageGCPolicy.KeepLastImages = *keepLastImagesFlag
-	imageGCPolicy.KeepLastContainers = *keepLastContainersFlag
+	imageGCPolicy.KeepLastImages = *imagesTtlFlag
+	imageGCPolicy.KeepLastContainers = *containersTtlFlag
 	imageGCPolicy.HighDiskSpaceThreshold = *highDiskSpaceThresholdFlag
 	imageGCPolicy.LowDiskSpaceThreshold = *lowDiskSpaceThresholdFlag
 
