@@ -114,7 +114,8 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 			"currentUsedDiskSpace":   usedDiskSpace,
 			"highDiskSpaceThreshold": policy.HighDiskSpaceThreshold,
 			"lowDiskSpaceThreshold":  policy.LowDiskSpaceThreshold,
-		}).Info("Disk space threshold not reached, skipping cleanup")
+		}).Info("Disk space threshold not reached, cleaning only the containers based on TTL")
+		CleanContainers(policy.KeepLastContainers)
 	}
 }
 
@@ -136,7 +137,7 @@ func CleanAll(mode string, policy GCPolicy) (int, int) {
 	switch mode {
 	case DiskPolicy:
 		removedContainers = removeDataBasedOnAge(getFinishedContainers(), Container, policy.KeepLastContainers)
-		removedImages = removeImagesInBatches()
+		removedImages = removeImagesInBatches(policy.KeepLastImages)
 	case DatePolicy:
 		removedContainers = removeDataBasedOnAge(getFinishedContainers(), Container, policy.KeepLastContainers)
 		removedImages = removeDataBasedOnAge(getImages(), Image, policy.KeepLastImages)
@@ -230,9 +231,8 @@ func getRunningContainers() []docker.APIContainers {
 	return containersList
 }
 
-func removeImagesInBatches() int {
+func removeImagesInBatches(keepLast time.Duration) int {
 	dataMap := getImages()
-	var deletedData int
 
 	dates := helpers.SortDataMap(dataMap)
 	var batch []int64
@@ -242,15 +242,14 @@ func removeImagesInBatches() int {
 		batch = dates
 	}
 
+	// Create a new map with only the values in the batch
+	batchDataMap := map[int64][]string{}
 	for _, date := range batch {
-		for _, id := range dataMap[date] {
-			log.Info("Trying to delete image: " + id)
-			if succeeded := removeData(id, Image); succeeded {
-				deletedData++
-			}
-		}
+		batchDataMap[date] = dataMap[date]
 	}
-	return deletedData
+
+	// Respect the TTL for images to not delete all of the images in disk filling situations
+	return removeDataBasedOnAge(batchDataMap, Image, keepLast)
 }
 
 func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast time.Duration) int {
