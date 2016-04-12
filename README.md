@@ -18,19 +18,19 @@ You can compile the binary by doing `script/setup` and `script/compile`. Golang 
 ### Running
 
 ```
-  docker-gc (-command=containers|images|all|emergency|diskspace|ttl) (-images_ttl=DURATION) (-containers_ttl=DURATION)
+  docker-gc -command=containers|images|all|emergency [-images_ttl=<DURATION>) [-containers_ttl=<DURATION>]
   -command=all cleans all images and containes respecting keep_last values
   -command=emergency same as all, but with 0second keep_last values
   OR
-  docker-gc (-command=ttl) (-interval=INTERVAL_IN_SECONDS) (-images_ttl=DURATION) (-containers_ttl=DURATION) for continuous cleanup based on image/container TTL
+  docker-gc -command=ttl [-interval=<INTERVAL_IN_SECONDS>] [-images_ttl=<DURATION>] [-containers_ttl=<DURATION>] for continuous cleanup based on image/container TTL
   OR
-  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for continuous cleanup based on used disk space
+  docker-gc -command=diskspace [-interval=<INTERVAL_IN_SECONDS>] [-high_disk_space_threshold=<PERCENTAGE>] [-low_disk_space_threshold=<PERCENTAGE>] [-containers_ttl=<DURATION>] for continuous cleanup based on used disk space
 
   You can also specify -bugsnag-key="key" to use bugsnag integration
-  and -statsd_address=127.0.0.1:815 and statsd_namespace=docker.gc.wtf. for statsd integration
+  and [-statsd_address=<127.0.0.1:815>] and [statsd_namespace=<docker.gc.wtf>] for statsd integration
 ```
 
-`docker-gc` has two main modes; ttl cleanup and one-time cleanup. 
+`docker-gc` has two main modes; continuous cleanup and one-time cleanup.
 
 ### One-time cleanup
 
@@ -42,7 +42,7 @@ One-time cleanup can be in four ways (as `-command=COMMAND`)
 
 eg. `docker-gc -command=all -images_ttl=5m -containers_ttl=1m` would do a one time cleanup of images older than 5minutes and containers older than 1minutes
 
-Default values are: 
+Default values are:
 
 - `command` = ttl
 - `images_ttl` = 10 hours
@@ -52,11 +52,11 @@ Default values are:
 
 `docker-gc` has two ttl modes; TTL based and free disk space based. This means the daemon keeps running and does swipes per `interval` settings.
 
-Default value for `interval` is 60 seconds. 
+Default value for `interval` is 60 seconds.
 
 ### TTL based
 
-eg `docker-gc -command=ttl -interval=5m` 
+eg `docker-gc -command=ttl -interval=5m`
 
 Same TTL settings for containers and images apply than for One-time cleanup
 
@@ -64,11 +64,12 @@ Same TTL settings for containers and images apply than for One-time cleanup
 
 eg `docker-gc -command=diskspace -interval=5m -high_disk_space_threshold=85 -low_disk_space_threshold=50`
 
-Monitors the disk volume used by Docker and if used disk space hits the `high_disk_space_threshold` threshold starts cleaning up containers and images in batches of 10
+Monitors the disk volume used by Docker and if used disk space hits the `high_disk_space_threshold` threshold starts cleaning up images in batches of 10
 until `low_disk_space_threshold` is reached.
 
-NOTICE: for containers we cleanup based on the `containers_ttl`  because in majority of usecases it makes more senses than looping in batches. 
-For images we do this in patches of 10 starting from the oldest after that.
+NOTICE1: for containers we cleanup based on the `containers_ttl` per `interval because in majority of usecases it makes more senses than looping in batches. 
+
+NOTICE2: The amount in batch might be more than 10 if theres multiple images created at same exact moment (accuracy based on UNIX timestamp)
 
 ## Usage
 
