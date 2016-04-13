@@ -19,7 +19,7 @@ var (
 	bugsnagKey                string
 	statsdAddr                string
 	statsdNamespace           string
-	imageGCPolicy             gc.GCPolicy
+	gcPolicy                  gc.GCPolicy
 )
 
 var (
@@ -35,16 +35,16 @@ var (
 )
 
 const usageMessage = `Usage of 'docker-gc':
-  docker-gc (-command=containers|images|all|emergency|diskspace|ttl) (-images_ttl=DURATION) (-containers_ttl=DURATION)
+  docker-gc -command=containers|images|all|emergency [-images_ttl=<DURATION>) [-containers_ttl=<DURATION>]
   -command=all cleans all images and containes respecting keep_last values
   -command=emergency same as all, but with 0second keep_last values
   OR
-  docker-gc (-command=ttl) (-interval=INTERVAL_IN_SECONDS) (-images_ttl=DURATION) (-containers_ttl=DURATION) for continuous cleanup based on image/container TTL
+  docker-gc -command=ttl [-interval=<INTERVAL_IN_SECONDS>] [-images_ttl=<DURATION>] [-containers_ttl=<DURATION>] for continuous cleanup based on image/container TTL
   OR
-  docker-gc (-command=diskspace) (-interval=INTERVAL_IN_SECONDS) (-high_disk_space_threshold=PERCENTAGE) (-low_disk_space_threshold=PERCENTAGE) for continuous cleanup based on used disk space
+  docker-gc -command=diskspace [-interval=<INTERVAL_IN_SECONDS>] [-high_disk_space_threshold=<PERCENTAGE>] [-low_disk_space_threshold=<PERCENTAGE>] [-containers_ttl=<DURATION>] for continuous cleanup based on used disk space
 
   You can also specify -bugsnag-key="key" to use bugsnag integration
-  and -statsd_address=127.0.0.1:815 and statsd_namespace=docker.gc.wtf. for statsd integration
+  and [-statsd_address=<127.0.0.1:815>] and [statsd_namespace=<docker.gc.wtf>] for statsd integration
 `
 
 func main() {
@@ -55,24 +55,25 @@ func main() {
 
 	switch command {
 	case "images":
-		gc.CleanImages(imageGCPolicy.KeepLastImages)
+		gc.CleanImages(gcPolicy.TtlImages)
 	case "containers":
-		gc.CleanContainers(imageGCPolicy.KeepLastContainers)
+		gc.CleanContainers(gcPolicy.TtlContainers)
 	case "all":
-		gc.CleanAll(gc.DatePolicy, imageGCPolicy)
+		gc.CleanAll(gc.DatePolicy, gcPolicy)
 	case "emergency":
-		emergencyPolicy := gc.GCPolicy{KeepLastContainers: 0, KeepLastImages: 0}
+		emergencyPolicy := gc.GCPolicy{TtlContainers: 0, TtlImages: 0}
 		gc.CleanAll(gc.DatePolicy, emergencyPolicy)
 	case "ttl":
 		interval := uint64(intervalForContinuousMode.Seconds())
-		gc.TtlGC(interval, imageGCPolicy)
+		gc.TtlGC(interval, gcPolicy)
 		select {}
 	case "diskspace":
 		interval := uint64(intervalForContinuousMode.Seconds())
-		gc.DiskSpaceGC(interval, imageGCPolicy)
+		gc.DiskSpaceGC(interval, gcPolicy)
 		select {}
 	default:
 		log.Error(command + " is not valid command")
+		Usage()
 		os.Exit(2)
 	}
 }
@@ -94,21 +95,14 @@ func parseFlags() {
 	statsdAddr = *statsdAddrFlag
 	statsdNamespace = *statsdNamespaceFlag
 
-	imageGCPolicy.KeepLastImages = *imagesTtlFlag
-	imageGCPolicy.KeepLastContainers = *containersTtlFlag
-	imageGCPolicy.HighDiskSpaceThreshold = *highDiskSpaceThresholdFlag
-	imageGCPolicy.LowDiskSpaceThreshold = *lowDiskSpaceThresholdFlag
+	gcPolicy.TtlImages = *imagesTtlFlag
+	gcPolicy.TtlContainers = *containersTtlFlag
+	gcPolicy.HighDiskSpaceThreshold = *highDiskSpaceThresholdFlag
+	gcPolicy.LowDiskSpaceThreshold = *lowDiskSpaceThresholdFlag
 
-	if imageGCPolicy.HighDiskSpaceThreshold > 100 || imageGCPolicy.HighDiskSpaceThreshold < 0 ||
-		imageGCPolicy.LowDiskSpaceThreshold > imageGCPolicy.HighDiskSpaceThreshold || imageGCPolicy.LowDiskSpaceThreshold < 0 {
+	if gcPolicy.HighDiskSpaceThreshold > 100 || gcPolicy.HighDiskSpaceThreshold < 0 ||
+		gcPolicy.LowDiskSpaceThreshold > gcPolicy.HighDiskSpaceThreshold || gcPolicy.LowDiskSpaceThreshold < 0 {
 		log.Error("Disk space threshold not valid, check that values are valid percentage values between 0-100 and that high is bigger than low")
-		flag.Usage()
-		os.Exit(2)
-	}
-
-	if command != "all" && command != "images" && command != "containers" &&
-		command != "emergency" && command != "continuous" && command != "diskspace" {
-		log.WithField("command", command).Error("Given command was not recognized")
 		flag.Usage()
 		os.Exit(2)
 	}

@@ -272,7 +272,7 @@ func TestTtlGC(t *testing.T) {
 	Client = nil
 	StartDockerClient(server.URL)
 
-	TtlGC(interval, GCPolicy{KeepLastContainers: containersTtl, KeepLastImages: imagesTtl})
+	TtlGC(interval, GCPolicy{TtlContainers: containersTtl, TtlImages: imagesTtl})
 	// Wait for three runs
 	time.Sleep(10 * time.Second)
 	StopGC()

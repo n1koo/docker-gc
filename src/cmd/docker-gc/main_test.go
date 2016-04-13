@@ -2,30 +2,11 @@ package main
 
 import (
 	"flag"
-	"os"
-	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
-
-func TestParseFlagsExitsWithBadCommand(t *testing.T) {
-	// Pattern from https://talks.golang.org/2014/testing.slide#1
-	if os.Getenv("BE_CRASHER") == "1" {
-		flag.Set("command", "foobar")
-		parseFlags()
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestParseFlagsExitsWithBadCommand")
-	cmd.Env = append(os.Environ(), "BE_CRASHER=1")
-	err := cmd.Run()
-	if e, ok := err.(*exec.ExitError); ok && !e.Success() {
-		assert.Equal(t, "exit status 2", err.(*exec.ExitError).Error(), "Expected exit status 2")
-		return
-	}
-	assert.Equal(t, "process ran with err %v", err, "expected exit status 2")
-}
 
 func TestParseFlagsParsesFlags(t *testing.T) {
 
@@ -39,13 +20,13 @@ func TestParseFlagsParsesFlags(t *testing.T) {
 	flag.Set("containers_ttl", containerDuration.String())
 	parseFlags()
 
-	assert.Equal(t, imageGCPolicy.KeepLastImages, imageDuration, "ImageDuration parsing succeeded")
-	assert.Equal(t, imageGCPolicy.KeepLastContainers, containerDuration, "ContainerDuration succeeded")
-	assert.Equal(t, command, testCommand, "Command parsing succeeded")
+	assert.Equal(t, gcPolicy.TtlImages, imageDuration, "ImageDuration parsing didn't succeed")
+	assert.Equal(t, gcPolicy.TtlContainers, containerDuration, "ContainerDuration didn't succeed")
+	assert.Equal(t, command, testCommand, "Command parsing didn't succeed")
 }
 
 func TestParseFlagsWithBadParams(t *testing.T) {
 	flag.Set("containers_ttl", "3")
 	parseFlags()
-	assert.NotEqual(t, imageGCPolicy.KeepLastContainers.String(), 0, "Command parsing failed")
+	assert.NotEqual(t, gcPolicy.TtlContainers.String(), 0, "Command parsing failed")
 }
