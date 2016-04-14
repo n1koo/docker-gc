@@ -119,12 +119,12 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 	}
 }
 
-func CleanImages(ttl time.Duration) {
-	removeDataBasedOnAge(getImages(), Image, ttl)
+func CleanImages(ttl time.Duration) int {
+	return removeDataBasedOnAge(getImages(), Image, ttl)
 }
 
-func CleanContainers(ttl time.Duration) {
-	removeDataBasedOnAge(getFinishedContainers(), Container, ttl)
+func CleanContainers(ttl time.Duration) int {
+	return removeDataBasedOnAge(getFinishedContainers(), Container, ttl)
 }
 
 func CleanAll(mode string, policy GCPolicy) (int, int) {

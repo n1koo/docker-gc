@@ -29,21 +29,41 @@ func (d *FakeDiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 	return d.counter, nil
 }
 
-type testResponseMap map[string]map[string]string
+type testResponseMap map[string]httpMethodAndResponseMap
+type httpMethodAndResponseMap map[string]parameterAndResponseMap
+type parameterAndResponseMap map[string]string
 
-func testServer(routes testResponseMap) *httptest.Server {
+func testServer(routes testResponseMap, hitsPerPath *map[string]int) *httptest.Server {
 	mux := http.NewServeMux()
 
 	for path, responses := range routes {
 		// Variable shadowing.
 		_responses := responses
+		_path := path
 		fun := func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
+			if val, ok := (*hitsPerPath)[_path]; ok {
+				(*hitsPerPath)[_path] = val + 1
+			} else {
+				(*hitsPerPath)[_path] = 1
+			}
+
 			w.Header().Set("Content-Type", "application/json")
+
 			found := false
 			reqParameters := r.URL.Query()
 
-			for parameter, response := range _responses {
+			// Check HTTP methods, if we have specified it in the map use that, otherwise default to using what we specified for GET
+			var data map[string]string
+			if val, ok := _responses[r.Method]; ok {
+				data = val
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+
+			//Check HTTP parameters (eg. ?all=1)
+			for parameter, response := range data {
 				parameterAndValue := strings.SplitN(parameter, "=", 2)
 				// first index is the param and second value eg. ..yourthing?foo=bar, 0 = foo, 1 = bar
 				foundParameterValue := strings.Join(reqParameters[parameterAndValue[0]], ",")
@@ -56,8 +76,8 @@ func testServer(routes testResponseMap) *httptest.Server {
 				}
 			}
 			//If no param was matched use default (and check that it was specified)
-			if !found && len(_responses["default"]) > 0 {
-				w.Write([]byte(_responses["default"]))
+			if !found && len(data["default"]) > 0 {
+				w.Write([]byte(data["default"]))
 			}
 		}
 		mux.HandleFunc(path, fun)
@@ -157,32 +177,49 @@ func generateTestData() testResponseMap {
 	containerListAsJson, containerListWithFullData := generateFiveTestContainers()
 
 	responses := testResponseMap{
-		"/_ping":       map[string]string{"default": "OK"},
-		"/images/json": map[string]string{"all=1": imageListAsJson},
-		"/containers/json": map[string]string{"default": containerListAsJson,
-			"filters={\"status\":[\"running\"]}":          "[]",
-			"filters={\"status\":[\"exited\", \"dead\"]}": containerListAsJson},
+		"/_ping": httpMethodAndResponseMap{
+			"GET": parameterAndResponseMap{
+				"default": "OK"}},
+		"/images/json": httpMethodAndResponseMap{
+			"GET": parameterAndResponseMap{
+				"all=1": imageListAsJson}},
+
+		"/containers/json": httpMethodAndResponseMap{
+			"GET": parameterAndResponseMap{
+				"default": containerListAsJson,
+				"filters={\"status\":[\"running\"]}":          "[]",
+				"filters={\"status\":[\"exited\", \"dead\"]}": containerListAsJson}},
 	}
 
 	for id, data := range containerListWithFullData {
-		responses["/containers/"+id+"/json"] = map[string]string{"default": data}
-		responses["/containers/"+id+""] = map[string]string{"default": "OK"}
+		responses["/containers/"+id+"/json"] = httpMethodAndResponseMap{
+			"GET": parameterAndResponseMap{
+				"default": data}}
+		responses["/containers/"+id+""] = httpMethodAndResponseMap{
+			"DELETE": parameterAndResponseMap{
+				"default": "OK"}}
 	}
 
 	for id, data := range imageHistoryList {
-		responses["/images/"+id+""] = map[string]string{"default": "OK"}
-		responses["/images/"+id+"/history"] = map[string]string{"default": data}
+		responses["/images/"+id+""] = httpMethodAndResponseMap{
+			"DELETE": parameterAndResponseMap{
+				"default": "OK"}}
+		responses["/images/"+id+"/history"] = httpMethodAndResponseMap{
+			"GET": parameterAndResponseMap{
+				"default": data}}
 	}
 
 	return responses
 }
 
 func TestStartDockerClient(t *testing.T) {
-	responses := map[string]map[string]string{
-		"/_ping": {"default": "OK"},
-	}
+	responses := testResponseMap{
+		"/_ping": httpMethodAndResponseMap{
+			"GET": parameterAndResponseMap{
+				"default": "OK"}}}
 
-	server := testServer(responses)
+	hitsPerPath := map[string]int{}
+	server := testServer(responses, &hitsPerPath)
 	defer server.Close()
 
 	endpoint := server.URL
@@ -215,7 +252,9 @@ func TestFailIfDockerNotAvailable(t *testing.T) {
 func TestCleanImages(t *testing.T) {
 
 	imagesTtl := 10 * time.Hour // Keep images that have been created in the last 10 hours
-	server := testServer(generateTestData())
+
+	hitsPerPath := map[string]int{}
+	server := testServer(generateTestData(), &hitsPerPath)
 	defer server.Close()
 
 	Client = nil
@@ -224,10 +263,14 @@ func TestCleanImages(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	CleanImages(imagesTtl)
+	cleanedImages := CleanImages(imagesTtl)
+
+	// we should delete two images
+	assert.Equal(t, 1, hitsPerPath["/images/4cb07b47f9fb"], "we should be cleaning 4cb07b47f9fb")
+	assert.Equal(t, 1, hitsPerPath["/images/5c76a2479c92"], "we should be cleaning 5c76a2479c92")
 
 	// Verify 2 images (12h + week old) were cleaned
-	assert.Equal(t, 2, len(hook.Entries), "we should be removing two images")
+	assert.Equal(t, 2, cleanedImages, "we should be removing two images")
 	assert.Equal(t, log.InfoLevel, hook.Entries[1].Level, "all image removal messages should log on Info level")
 	assert.Equal(t, "Trying to delete image: 4cb07b47f9fb", hook.Entries[0].Message, "expected to delete 4cb07b47f9fb")
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "all image removal messages should log on Info level")
@@ -237,7 +280,8 @@ func TestCleanImages(t *testing.T) {
 func TestCleanContainers(t *testing.T) {
 	containersTtl := 1 * time.Minute // Keep containers that have exited in past 59seconds
 
-	server := testServer(generateTestData())
+	hitsPerPath := map[string]int{}
+	server := testServer(generateTestData(), &hitsPerPath)
 	defer server.Close()
 
 	StartDockerClient(server.URL)
@@ -245,10 +289,14 @@ func TestCleanContainers(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	CleanContainers(containersTtl)
+	cleanedContainers := CleanContainers(containersTtl)
+
+	assert.Equal(t, 1, hitsPerPath["/containers/3176a2479c92"], "we should be cleaning 3176a2479c92")
+	assert.Equal(t, 1, hitsPerPath["/containers/4cb07b47f9fb"], "we should be cleaning 4cb07b47f9fb")
+	assert.Equal(t, 1, hitsPerPath["/containers/5c76a2479c92"], "we should be cleaning 5c76a2479c92")
 
 	// Verify 2 images (12h + week old) were cleaned
-	assert.Equal(t, 3, len(hook.Entries), "we should be removing two images")
+	assert.Equal(t, 3, cleanedContainers, "we should be removing three containers")
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "all image removal messages should log on Info level")
 	assert.Equal(t, "Trying to delete container: 3176a2479c92", hook.Entries[0].Message, "expected to delete 3176a2479c92")
 	assert.Equal(t, log.InfoLevel, hook.Entries[1].Level, "all image removal messages should log on Info level")
@@ -266,7 +314,8 @@ func TestTtlGC(t *testing.T) {
 
 	var interval uint64 = 3 // interval for cron run
 
-	server := testServer(generateTestData())
+	hitsPerPath := map[string]int{}
+	server := testServer(generateTestData(), &hitsPerPath)
 	defer server.Close()
 
 	Client = nil
@@ -296,7 +345,8 @@ func TestStatsdReporting(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	server := testServer(generateTestData())
+	hitsPerPath := map[string]int{}
+	server := testServer(generateTestData(), &hitsPerPath)
 	defer server.Close()
 
 	statsdAddress := "127.0.0.1:6667"
@@ -309,12 +359,15 @@ func TestStatsdReporting(t *testing.T) {
 
 	StartDockerClient(server.URL)
 
+	var cleanedImages int
+	var cleanedContainers int
+
 	expectedContainerMessages := []string{
 		"test.dockergc.container.dead.amount:5|g",
 		"test.dockergc.container.deleted:1|c",
 	}
 	udp.ShouldReceiveAll(t, expectedContainerMessages, func() {
-		CleanContainers(keepLastData)
+		cleanedContainers = CleanContainers(keepLastData)
 	})
 
 	expectedImageMessages := []string{
@@ -322,8 +375,11 @@ func TestStatsdReporting(t *testing.T) {
 		"test.dockergc.image.deleted:1|c",
 	}
 	udp.ShouldReceiveAll(t, expectedImageMessages, func() {
-		CleanImages(keepLastData)
+		cleanedImages = CleanImages(keepLastData)
 	})
+
+	assert.Equal(t, 5, cleanedContainers, "we should be removing five containers")
+	assert.Equal(t, 5, cleanedImages, "we should be removing one image")
 
 	os.Setenv("TESTMODE", "true")
 }
@@ -332,7 +388,8 @@ func TestMonitorDiskSpace(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
-	server := testServer(generateTestData())
+	hitsPerPath := map[string]int{}
+	server := testServer(generateTestData(), &hitsPerPath)
 	defer server.Close()
 
 	Client = nil
