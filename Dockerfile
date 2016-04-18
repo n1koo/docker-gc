@@ -1,4 +1,4 @@
-FROM golang:1.5.3
+FROM golang:1.5
 
 RUN go get github.com/constabulary/gb/...
 RUN mkdir docker-gc
@@ -6,7 +6,8 @@ WORKDIR /docker-gc
 
 COPY ./ /docker-gc/
 
-RUN chmod +x bin/docker-gc \
- && script/setup \
- && script/compile
-CMD ["script/run"]
+RUN script/setup \
+ && script/compile \
+ && chmod +x bin/docker-gc
+CMD bin/docker-gc 
+
