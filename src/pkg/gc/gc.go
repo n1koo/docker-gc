@@ -24,7 +24,8 @@ const (
 )
 
 var (
-	Client *docker.Client
+	Client           *docker.Client
+	diskSpaceFetcher DiskSpace
 )
 
 type DiskSpaceFetcher struct{}
@@ -66,8 +67,8 @@ func StartDockerClient(endpoint string) *docker.Client {
 }
 
 func DiskSpaceGC(intervalInSeconds uint64, policy GCPolicy) {
-	diskSpaceFetcher := &DiskSpaceFetcher{}
-	gocron.Every(intervalInSeconds).Seconds().Do(CleanAllWithDiskSpacePolicy, diskSpaceFetcher, policy)
+	diskSpaceFetcher = &DiskSpaceFetcher{}
+	gocron.Every(intervalInSeconds).Seconds().Do(CleanAllWithDiskSpacePolicy, policy)
 	log.Info("Continous run started in diskspace mode with interval (in seconds): ", intervalInSeconds)
 	gocron.Start()
 }
@@ -82,7 +83,7 @@ func StopGC() {
 	gocron.Clear()
 }
 
-func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
+func CleanAllWithDiskSpacePolicy(policy GCPolicy) {
 	usedDiskSpace, diskErr := diskSpaceFetcher.GetUsedDiskSpaceInPercents()
 	if diskErr != nil {
 		log.WithField("error", diskErr).Error("Reading disk space failed")
@@ -90,25 +91,22 @@ func CleanAllWithDiskSpacePolicy(diskSpaceFetcher DiskSpace, policy GCPolicy) {
 	}
 
 	if usedDiskSpace >= policy.HighDiskSpaceThreshold {
-		for usedDiskSpace > policy.LowDiskSpaceThreshold {
-			log.WithFields(log.Fields{
-				"currentUsedDiskSpace":   usedDiskSpace,
-				"highDiskSpaceThreshold": policy.HighDiskSpaceThreshold,
-				"lowDiskSpaceThreshold":  policy.LowDiskSpaceThreshold,
-			}).Info("Cleaning images to reach low used disk space threshold")
-
-			cleanedContainers, cleanedImages := CleanAll(DiskPolicy, policy)
-			if cleanedContainers == 0 && cleanedImages == 0 {
-				log.Info("Breaking cleanup due to no data being deleted anymore")
-				break // we are not making progress, lets relax for interval period
-			}
-
-			usedDiskSpace, diskErr = diskSpaceFetcher.GetUsedDiskSpaceInPercents()
-			if diskErr != nil {
-				log.WithField("error", diskErr).Error("Reading disk space failed")
-				break
-			}
+		log.WithFields(log.Fields{
+			"currentUsedDiskSpace":   usedDiskSpace,
+			"highDiskSpaceThreshold": policy.HighDiskSpaceThreshold,
+			"lowDiskSpaceThreshold":  policy.LowDiskSpaceThreshold,
+		}).Info("Cleaning images to reach low used disk space threshold")
+		cleanedContainers, cleanedImages := CleanAll(DiskPolicy, policy)
+		usedDiskSpace, diskErr := diskSpaceFetcher.GetUsedDiskSpaceInPercents()
+		if diskErr != nil {
+			log.WithField("error", diskErr).Error("Reading disk space failed")
+			return
 		}
+		log.WithFields(log.Fields{
+			"cleanedContainer": cleanedContainers,
+			"cleanedImages":    cleanedImages,
+			"usedDiskSpace":    usedDiskSpace,
+		}).Info("Cleaning images finished")
 	} else {
 		log.WithFields(log.Fields{
 			"currentUsedDiskSpace":   usedDiskSpace,
@@ -137,7 +135,7 @@ func CleanAll(mode string, policy GCPolicy) (int, int) {
 	switch mode {
 	case DiskPolicy:
 		removedContainers = removeDataBasedOnAge(getFinishedContainers(), Container, policy.TtlContainers)
-		removedImages = removeImagesInBatch(policy.TtlImages)
+		removedImages = removeImagesInBatch(policy)
 	case DatePolicy:
 		removedContainers = removeDataBasedOnAge(getFinishedContainers(), Container, policy.TtlContainers)
 		removedImages = removeDataBasedOnAge(getImages(), Image, policy.TtlImages)
@@ -230,36 +228,66 @@ func getRunningContainers() []docker.APIContainers {
 	return running
 }
 
-func removeImagesInBatch(keepLast time.Duration) int {
+func removeImagesInBatch(policy GCPolicy) int {
 	dataMap := getImages()
 
+	totalDeletedImages := 0
+	batchCounter := 0
+
 	dates := helpers.SortDataMap(dataMap)
-	var batch []int64
-	if len(dates) > BatchSizeToDelete {
-		batch = dates[len(dates)-BatchSizeToDelete:]
-	} else {
-		batch = dates
+
+	usedDiskSpace, diskErr := diskSpaceFetcher.GetUsedDiskSpaceInPercents()
+	if diskErr != nil {
+		log.WithField("error", diskErr).Error("Reading disk space failed")
+		return 0
 	}
 
-	// Create a new map with only the values in the batch
-	batchDataMap := map[int64][]string{}
-	for _, date := range batch {
-		//Notice this might not be exactly BatchSizeToDelete because there might multiple images created at same exact moment
-		batchDataMap[date] = dataMap[date]
-	}
+	for usedDiskSpace > policy.LowDiskSpaceThreshold {
+		var batch []int64
+		if len(dates) > BatchSizeToDelete {
+			// Two pointers to move so that we can have like 0:10, 10:20 etc
+			start := BatchSizeToDelete * batchCounter
+			end := start + BatchSizeToDelete
 
+			if start >= len(dates) {
+				break
+			}
+
+			if end > len(dates) {
+				end = len(dates)
+			}
+
+			batch = dates[start:end]
+		} else {
+			batch = dates
+		}
+
+		// Create a new map with only the values in the batch
+		batchDataMap := map[int64][]string{}
+		for _, date := range batch {
+			//Notice this might not be exactly BatchSizeToDelete because there might multiple images created at same exact moment
+			batchDataMap[date] = dataMap[date]
+		}
+
+		totalDeletedImages = totalDeletedImages + removeDataBasedOnAge(batchDataMap, Image, policy.TtlImages)
+		batchCounter++
+
+		usedDiskSpace, diskErr = diskSpaceFetcher.GetUsedDiskSpaceInPercents()
+		if diskErr != nil {
+			log.WithField("error", diskErr).Error("Reading disk space failed")
+			break
+		}
+	}
 	// Respect the TTL for images to not delete all of the images in disk filling situations
-	return removeDataBasedOnAge(batchDataMap, Image, keepLast)
+	return totalDeletedImages
 }
 
 func removeDataBasedOnAge(dataMap map[int64][]string, dataType string, keepLast time.Duration) int {
 	var deletedData int
-	dates := helpers.SortDataMap(dataMap)
-
+	dates := helpers.SortDataMapReverse(dataMap)
 	for _, date := range dates {
 		for _, id := range dataMap[date] {
 			ageOfData := time.Since(time.Unix(date, 0))
-
 			// If container/image is older than our threshold, delete it
 			if ageOfData > keepLast {
 				log.WithFields(log.Fields{
