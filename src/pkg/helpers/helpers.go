@@ -16,11 +16,23 @@ func StringInSlice(a string, list []string) bool {
 }
 
 func SortDataMap(dataMap map[int64][]string) []int64 {
-	//Sort map based on dates to make order predictable
-	var dates []int64
+	//Sort map keys to make order predictable for indexing
+	keys := getKeysFromMap(dataMap)
+	sort.Sort(sortutil.Int64Slice(keys))
+	return keys
+}
+
+func SortDataMapReverse(dataMap map[int64][]string) []int64 {
+	//Sort map keys to make order predictable for indexing (REVERSE)
+	keys := getKeysFromMap(dataMap)
+	sort.Sort(sort.Reverse(sortutil.Int64Slice(keys)))
+	return keys
+}
+
+func getKeysFromMap(dataMap map[int64][]string) []int64 {
+	var keys []int64
 	for k := range dataMap {
-		dates = append(dates, k)
+		keys = append(keys, k)
 	}
-	sort.Sort(sort.Reverse(sortutil.Int64Slice(dates)))
-	return dates
+	return keys
 }

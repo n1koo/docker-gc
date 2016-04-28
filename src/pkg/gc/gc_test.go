@@ -24,10 +24,10 @@ type FakeDiskSpaceFetcher struct {
 
 func (d *FakeDiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 	if d.counter == 0 {
-		d.counter = 10
+		d.counter = 100
 	}
 	d.counter--
-	return d.counter, nil
+	return d.counter + 1, nil
 }
 
 type testResponseMap map[string][]response
@@ -112,8 +112,8 @@ func testServer(routes testResponseMap, hitsPerPath *map[string]int) *httptest.S
 	return server
 }
 
-func generateFiveTestImages() (string, map[string]string) {
-	//Generate 4 images which 2 have been exited in past minute and two havent
+// Actually 5*amount since we assume the five totally unique being present always
+func generateTestImages(amount int, t *testing.T) (string, map[string]string) {
 	timeNow := time.Now()
 	threeSecondsOld := timeNow.Add(-3 * time.Second)
 	fiveMinutesOld := timeNow.Add(-5 * time.Minute)
@@ -121,11 +121,17 @@ func generateFiveTestImages() (string, map[string]string) {
 	dayOld := timeNow.Add(-24 * time.Hour)
 
 	idsAndDatesMap := make(map[string]int64)
-	idsAndDatesMap["8dfafdbc3a40"] = timeNow.Unix()
-	idsAndDatesMap["9cd87474be90"] = threeSecondsOld.Unix()
-	idsAndDatesMap["3176a2479c92"] = fiveMinutesOld.Unix()
-	idsAndDatesMap["4cb07b47f9fb"] = twelweHoursOld.Unix()
-	idsAndDatesMap["5c76a2479c92"] = dayOld.Unix()
+	for i := 1; i <= amount; i++ {
+		extra, err := time.ParseDuration(fmt.Sprintf("%ds", i))
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+		idsAndDatesMap[fmt.Sprintf("8dfafdbc3a40%d", i)] = timeNow.Add(-extra).Unix()
+		idsAndDatesMap[fmt.Sprintf("9cd87474be90%d", i)] = threeSecondsOld.Add(-extra).Unix()
+		idsAndDatesMap[fmt.Sprintf("3176a2479c92%d", i)] = fiveMinutesOld.Add(-extra).Unix()
+		idsAndDatesMap[fmt.Sprintf("4cb07b47f9fb%d", i)] = twelweHoursOld.Add(-extra).Unix()
+		idsAndDatesMap[fmt.Sprintf("5c76a2479c92%d", i)] = dayOld.Add(-extra).Unix()
+	}
 
 	var imageList []idAndCreated
 	imageHistoryList := make(map[string]string)
@@ -152,7 +158,8 @@ func mustMarshal(data interface{}) []byte {
 	return out
 }
 
-func generateFiveTestContainers() (string, map[string]string) {
+// Actually 5*amount since we assume the five totally unique being present always
+func generateTestContainers(amount int, t *testing.T) (string, map[string]string) {
 	//Generate 4 containers of which 2 have been exited in past minute and two havent
 	timeNow := time.Now()
 	fiveMinutesOld := timeNow.Add(-3 * time.Second)
@@ -161,11 +168,17 @@ func generateFiveTestContainers() (string, map[string]string) {
 	twoWeekOld := timeNow.Add(2 * -7 * 24 * time.Hour)
 
 	idsAndDatesMap := make(map[string]string)
-	idsAndDatesMap["8dfafdbc3a40"] = timeNow.Format(time.RFC3339)
-	idsAndDatesMap["9cd87474be90"] = fiveMinutesOld.Format(time.RFC3339)
-	idsAndDatesMap["3176a2479c92"] = twelweHoursOld.Format(time.RFC3339)
-	idsAndDatesMap["4cb07b47f9fb"] = weekOld.Format(time.RFC3339)
-	idsAndDatesMap["5c76a2479c92"] = twoWeekOld.Format(time.RFC3339)
+	for i := 1; i <= amount; i++ {
+		extra, err := time.ParseDuration(fmt.Sprintf("%ds", i))
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+		idsAndDatesMap[fmt.Sprintf("8dfafdbc3a40%d", i)] = timeNow.Add(-extra).Format(time.RFC3339)
+		idsAndDatesMap[fmt.Sprintf("9cd87474be90%d", i)] = fiveMinutesOld.Add(-extra).Format(time.RFC3339)
+		idsAndDatesMap[fmt.Sprintf("3176a2479c92%d", i)] = twelweHoursOld.Add(-extra).Format(time.RFC3339)
+		idsAndDatesMap[fmt.Sprintf("4cb07b47f9fb%d", i)] = weekOld.Add(-extra).Format(time.RFC3339)
+		idsAndDatesMap[fmt.Sprintf("5c76a2479c92%d", i)] = twoWeekOld.Add(-extra).Format(time.RFC3339)
+	}
 
 	var containerList []containerListInfo
 	containerListWithFullData := make(map[string]string)
@@ -183,9 +196,9 @@ func generateFiveTestContainers() (string, map[string]string) {
 	return string(containerListAsJson), containerListWithFullData
 }
 
-func generateTestData() testResponseMap {
-	imageListAsJson, imageHistoryList := generateFiveTestImages()
-	containerListAsJson, containerListWithFullData := generateFiveTestContainers()
+func generateTestData(imageAmount int, containerAmount int, t *testing.T) testResponseMap {
+	imageListAsJson, imageHistoryList := generateTestImages(imageAmount, t)
+	containerListAsJson, containerListWithFullData := generateTestContainers(containerAmount, t)
 
 	responses := make(testResponseMap)
 
@@ -262,7 +275,7 @@ func TestCleanImages(t *testing.T) {
 	imagesTtl := 10 * time.Hour // Keep images that have been created in the last 10 hours
 
 	hitsPerPath := map[string]int{}
-	server := testServer(generateTestData(), &hitsPerPath)
+	server := testServer(generateTestData(1, 1, t), &hitsPerPath)
 	defer server.Close()
 
 	Client = nil
@@ -274,22 +287,22 @@ func TestCleanImages(t *testing.T) {
 	cleanedImages := CleanImages(imagesTtl)
 
 	// we should delete two images
-	assert.Equal(t, 1, hitsPerPath["/images/4cb07b47f9fb"], "we should be cleaning 4cb07b47f9fb")
-	assert.Equal(t, 1, hitsPerPath["/images/5c76a2479c92"], "we should be cleaning 5c76a2479c92")
+	assert.Equal(t, 1, hitsPerPath["/images/4cb07b47f9fb1"], "we should be cleaning 4cb07b47f9fb1")
+	assert.Equal(t, 1, hitsPerPath["/images/5c76a2479c921"], "we should be cleaning 5c76a2479c921")
 
 	// Verify 2 images (12h + week old) were cleaned
 	assert.Equal(t, 2, cleanedImages, "we should be removing two images")
 	assert.Equal(t, log.InfoLevel, hook.Entries[1].Level, "all image removal messages should log on Info level")
-	assert.Equal(t, "Trying to delete image: 4cb07b47f9fb", hook.Entries[0].Message, "expected to delete 4cb07b47f9fb")
+	assert.Equal(t, "Trying to delete image: 4cb07b47f9fb1", hook.Entries[0].Message, "expected to delete 4cb07b47f9fb1")
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "all image removal messages should log on Info level")
-	assert.Equal(t, "Trying to delete image: 5c76a2479c92", hook.Entries[1].Message, "expected to delete 5c76a2479c92")
+	assert.Equal(t, "Trying to delete image: 5c76a2479c921", hook.Entries[1].Message, "expected to delete 5c76a2479c921")
 }
 
 func TestCleanContainers(t *testing.T) {
 	containersTtl := 1 * time.Minute // Keep containers that have exited in past 59seconds
 
 	hitsPerPath := map[string]int{}
-	server := testServer(generateTestData(), &hitsPerPath)
+	server := testServer(generateTestData(1, 1, t), &hitsPerPath)
 	defer server.Close()
 
 	StartDockerClient(server.URL)
@@ -299,18 +312,18 @@ func TestCleanContainers(t *testing.T) {
 
 	cleanedContainers := CleanContainers(containersTtl)
 
-	assert.Equal(t, 1, hitsPerPath["/containers/3176a2479c92"], "we should be cleaning 3176a2479c92")
-	assert.Equal(t, 1, hitsPerPath["/containers/4cb07b47f9fb"], "we should be cleaning 4cb07b47f9fb")
-	assert.Equal(t, 1, hitsPerPath["/containers/5c76a2479c92"], "we should be cleaning 5c76a2479c92")
+	assert.Equal(t, 1, hitsPerPath["/containers/3176a2479c921"], "we should be cleaning 3176a2479c921")
+	assert.Equal(t, 1, hitsPerPath["/containers/4cb07b47f9fb1"], "we should be cleaning 4cb07b47f9fb1")
+	assert.Equal(t, 1, hitsPerPath["/containers/5c76a2479c921"], "we should be cleaning 5c76a2479c921")
 
 	// Verify 2 images (12h + week old) were cleaned
 	assert.Equal(t, 3, cleanedContainers, "we should be removing three containers")
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "all image removal messages should log on Info level")
-	assert.Equal(t, "Trying to delete container: 3176a2479c92", hook.Entries[0].Message, "expected to delete 3176a2479c92")
+	assert.Equal(t, "Trying to delete container: 3176a2479c921", hook.Entries[0].Message, "expected to delete 3176a2479c921")
 	assert.Equal(t, log.InfoLevel, hook.Entries[1].Level, "all image removal messages should log on Info level")
-	assert.Equal(t, "Trying to delete container: 4cb07b47f9fb", hook.Entries[1].Message, "expected to delete 4cb07b47f9fb")
+	assert.Equal(t, "Trying to delete container: 4cb07b47f9fb1", hook.Entries[1].Message, "expected to delete 4cb07b47f9fb1")
 	assert.Equal(t, log.InfoLevel, hook.Entries[2].Level, "all image removal messages should log on Info level")
-	assert.Equal(t, "Trying to delete container: 5c76a2479c92", hook.Entries[2].Message, "expected to delete 8dbd9e392a964c")
+	assert.Equal(t, "Trying to delete container: 5c76a2479c921", hook.Entries[2].Message, "expected to delete 8dbd9e392a964c1")
 }
 
 func TestTtlGC(t *testing.T) {
@@ -323,7 +336,7 @@ func TestTtlGC(t *testing.T) {
 	var interval uint64 = 3 // interval for cron run
 
 	hitsPerPath := map[string]int{}
-	server := testServer(generateTestData(), &hitsPerPath)
+	server := testServer(generateTestData(1, 1, t), &hitsPerPath)
 	defer server.Close()
 
 	Client = nil
@@ -339,14 +352,14 @@ func TestTtlGC(t *testing.T) {
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "We should use see Info about starting ttl GC")
 	assert.Equal(t, "Continous run started in timebased mode with interval (in seconds): 3", hook.Entries[0].Message, "report start of GC")
 	assert.Equal(t, "Cleaning all images/containers", hook.Entries[1].Message, "report start of first cleanup")
-	assert.Equal(t, "Trying to delete container: 3176a2479c92", hook.Entries[2].Message, "clean 12h old image")
-	assert.Equal(t, "Trying to delete container: 4cb07b47f9fb", hook.Entries[3].Message, "clean five minutes old image")
-	assert.Equal(t, "Trying to delete container: 5c76a2479c92", hook.Entries[4].Message, "Clean old container")
-	assert.Equal(t, "Trying to delete image: 3176a2479c92", hook.Entries[5].Message, "clean old image")
-	assert.Equal(t, "Trying to delete image: 4cb07b47f9fb", hook.Entries[6].Message, "Clean old image")
+	assert.Equal(t, "Trying to delete container: 3176a2479c921", hook.Entries[2].Message, "clean 12h old image")
+	assert.Equal(t, "Trying to delete container: 4cb07b47f9fb1", hook.Entries[3].Message, "clean five minutes old image")
+	assert.Equal(t, "Trying to delete container: 5c76a2479c921", hook.Entries[4].Message, "Clean old container")
+	assert.Equal(t, "Trying to delete image: 3176a2479c921", hook.Entries[5].Message, "clean old image")
+	assert.Equal(t, "Trying to delete image: 4cb07b47f9fb1", hook.Entries[6].Message, "Clean old image")
 	assert.Equal(t, "Cleaning all images/containers", hook.Entries[8].Message, "start of third")
-	assert.Equal(t, "Trying to delete container: 9cd87474be90", hook.Entries[9].Message, "Clean old container")
-	assert.Equal(t, "Trying to delete container: 3176a2479c92", hook.Entries[10].Message, "Clean old container")
+	assert.Equal(t, "Trying to delete container: 9cd87474be901", hook.Entries[9].Message, "Clean old container")
+	assert.Equal(t, "Trying to delete container: 3176a2479c921", hook.Entries[10].Message, "Clean old container")
 }
 
 func TestStatsdReporting(t *testing.T) {
@@ -354,7 +367,7 @@ func TestStatsdReporting(t *testing.T) {
 	log.AddHook(hook)
 
 	hitsPerPath := map[string]int{}
-	server := testServer(generateTestData(), &hitsPerPath)
+	server := testServer(generateTestData(1, 1, t), &hitsPerPath)
 	defer server.Close()
 
 	statsdAddress := "127.0.0.1:6667"
@@ -363,7 +376,7 @@ func TestStatsdReporting(t *testing.T) {
 	statsd.Configure(statsdAddress, "test.dockergc.")
 	os.Unsetenv("TESTMODE")
 
-	keepLastData := 0 * time.Second // Delete all images
+	keepLastData := 0 * time.Second // Delete all
 
 	StartDockerClient(server.URL)
 
@@ -392,23 +405,46 @@ func TestStatsdReporting(t *testing.T) {
 	os.Setenv("TESTMODE", "true")
 }
 
-func TestMonitorDiskSpace(t *testing.T) {
+func TestMonitorDiskSpacePartial(t *testing.T) {
 	_, hook := logrustest.NewNullLogger()
 	log.AddHook(hook)
 
 	hitsPerPath := map[string]int{}
-	server := testServer(generateTestData(), &hitsPerPath)
+	imageAmount := 15
+	server := testServer(generateTestData(imageAmount, 1, t), &hitsPerPath)
 	defer server.Close()
 
 	Client = nil
 	StartDockerClient(server.URL)
 
-	fakeDiskSpaceFetcher := &FakeDiskSpaceFetcher{}
+	diskSpaceFetcher = &FakeDiskSpaceFetcher{}
 
-	CleanAllWithDiskSpacePolicy(fakeDiskSpaceFetcher, GCPolicy{HighDiskSpaceThreshold: 6, LowDiskSpaceThreshold: 3})
+	// Assert that in the case where we cant free enough free space in a single run we go through all images
+	CleanAllWithDiskSpacePolicy(GCPolicy{HighDiskSpaceThreshold: 99, LowDiskSpaceThreshold: 0})
+	assert.Equal(t, 83, len(hook.Entries), "We see 60 message")
+	assert.Equal(t, 5*imageAmount, hook.Entries[len(hook.Entries)-1].Data["cleanedImages"], "Report that we clean all images")
 
-	// Assert that we see 5*10 delete runs for images + 5x100 (all) container deletes + 6*2 info messages (counting down from 9 to 4)
-	assert.Equal(t, 72, len(hook.Entries), "We see 72 message")
+}
+
+func TestMonitorDiskSpaceFull(t *testing.T) {
+	_, hook := logrustest.NewNullLogger()
+	log.AddHook(hook)
+
+	hitsPerPath := map[string]int{}
+	imageAmount := 15
+	server := testServer(generateTestData(imageAmount, 1, t), &hitsPerPath)
+	defer server.Close()
+
+	Client = nil
+	StartDockerClient(server.URL)
+
+	diskSpaceFetcher = &FakeDiskSpaceFetcher{}
+
+	// Assert that we see starting message for the cleanup and the last message reports that we got from 100 to 94 and stopped there
+	CleanAllWithDiskSpacePolicy(GCPolicy{HighDiskSpaceThreshold: 99, LowDiskSpaceThreshold: 95})
+	assert.Equal(t, 48, len(hook.Entries), "We see 48 message")
 	assert.Equal(t, log.InfoLevel, hook.Entries[0].Level, "We should report starting of cleanup based on threshold")
 	assert.Equal(t, "Cleaning images to reach low used disk space threshold", hook.Entries[0].Message, "report low image threshold reached")
+	assert.Equal(t, "Cleaning images finished", hook.Entries[len(hook.Entries)-1].Message, "Report that we have reached 94%")
+	assert.Equal(t, 94, hook.Entries[len(hook.Entries)-1].Data["usedDiskSpace"], "Report that we have reached 94%")
 }
