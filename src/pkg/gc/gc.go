@@ -346,9 +346,9 @@ func (d *DiskSpaceFetcher) GetUsedDiskSpaceInPercents() (int, error) {
 		return 0, err
 	}
 
-	total := int(s.Bsize) * int(s.Blocks)
-	free := int(s.Bsize) * int(s.Bfree)
+	files := helpers.PercentUsed(s.Bfree, s.Blocks)
+	nodes := helpers.PercentUsed(s.Ffree, s.Files)
+	worst := math.Max(files, nodes)
 
-	percent := math.Floor(100 - (float64(free) / float64(total) * 100))
-	return int(percent), err
+	return int(worst), nil
 }
