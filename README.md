@@ -60,11 +60,11 @@ eg `docker-gc -command=ttl -interval=5m`
 
 Same TTL settings for containers and images apply than for One-time cleanup
 
-#### Free disk space based
+#### Free inode/disk space based
 
 eg `docker-gc -command=diskspace -interval=5m -high_disk_space_threshold=85 -low_disk_space_threshold=50`
 
-Monitors the disk volume used by Docker and if used disk space hits the `high_disk_space_threshold` threshold starts cleaning up images in batches of 10
+Monitors the disk volume used by Docker and if used inodes/disk space hits the `high_disk_space_threshold` threshold starts cleaning up images in batches of 10
 until `low_disk_space_threshold` is reached.
 
 NOTICE1: for containers we cleanup based on the `containers_ttl` per `interval because in majority of usecases it makes more senses than looping in batches. 
