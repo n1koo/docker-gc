@@ -1,0 +1,107 @@
+{
+	"version": 0,
+	"dependencies": [
+		{
+			"importpath": "github.com/Shopify/go-dogstatsd",
+			"repository": "https://github.com/Shopify/go-dogstatsd",
+			"revision": "76f9377ffde254a7e012e7d422e8b8f9748571aa",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/Shopify/logrus-bugsnag",
+			"repository": "https://github.com/Shopify/logrus-bugsnag",
+			"revision": "d233bc004b27748102b2cf879def83493789b1fc",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/Sirupsen/logrus",
+			"repository": "https://github.com/Sirupsen/logrus",
+			"revision": "4b6ea7319e214d98c938f12692336f7ca9348d6b",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/bugsnag/bugsnag-go",
+			"repository": "https://github.com/bugsnag/bugsnag-go",
+			"revision": "0d5b6e579efe7c6f2dc142602672061c29fcc133",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/bugsnag/osext",
+			"repository": "https://github.com/bugsnag/osext",
+			"revision": "0dd3f918b21bec95ace9dc86c7e70266cfc5c702",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/bugsnag/panicwrap",
+			"repository": "https://github.com/bugsnag/panicwrap",
+			"revision": "d6191e27ad06236eaad65d79e49a08b03b9f8029",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/cznic/sortutil",
+			"repository": "https://github.com/cznic/sortutil",
+			"revision": "4c7342852e65c2088c981288f2c5610d10b9f7f4",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/davecgh/go-spew",
+			"repository": "https://github.com/davecgh/go-spew",
+			"revision": "5215b55f46b2b919f50a1df0eaa5886afe4e3b3d",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/fsouza/go-dockerclient",
+			"repository": "https://github.com/fsouza/go-dockerclient",
+			"revision": "4ac6ea1aa6ee9be15e66aa694c4b3f909df239f4",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/jasonlvhit/gocron",
+			"repository": "https://github.com/jasonlvhit/gocron",
+			"revision": "0b564bf03e9665599efbcba1c6fba3d84212c197",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/n1koo/go-udp-testing",
+			"repository": "https://github.com/n1koo/go-udp-testing",
+			"revision": "c3d47a0ca73ba37efdaece84705258ab161d4f42",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/n1koo/gocron",
+			"repository": "https://github.com/n1koo/gocron",
+			"revision": "c137f65c821801e4eba9a133fb29647597d44583",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/pmezard/go-difflib",
+			"repository": "https://github.com/pmezard/go-difflib",
+			"revision": "792786c7400a136282c1664665ae0a8db921c6c2",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/stretchr/objx",
+			"repository": "https://github.com/stretchr/objx",
+			"revision": "1a9d0bb9f541897e62256577b352fdbc1fb4fd94",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/stretchr/testify",
+			"repository": "https://github.com/stretchr/testify",
+			"revision": "6fe211e493929a8aac0469b93f28b1d0688a9a3a",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "gopkg.in/airbrake/gobrake.v2",
+			"repository": "https://gopkg.in/airbrake/gobrake.v2",
+			"revision": "31c8ff1fb8b79a6947e6565e9a6df535f98a6b94",
+			"branch": "master"
+		},
+		{
+			"importpath": "gopkg.in/gemnasium/logrus-airbrake-hook.v2",
+			"repository": "https://gopkg.in/gemnasium/logrus-airbrake-hook.v2",
+			"revision": "31e6fd4bd5a98d8ee7673d24bc54ec73c31810dd",
+			"branch": "master"
+		}
+	]
+}
